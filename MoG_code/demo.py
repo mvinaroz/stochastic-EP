@@ -2,7 +2,9 @@ import numpy as np
 from mog import mog
 import sys, time
 from comp_ground_truth import moment_numerical, kl_approx
+import matplotlib
 from matplotlib import pyplot
+matplotlib.pyplot.switch_backend('agg')
 from gmm import model as GMM
 from try_bvn_ellipse import BVN, make_ellipses, gauss_ell
 from sampling import gmm_sampling
@@ -108,7 +110,7 @@ def demo_clutter(seed, step, num_data, num_group, size, prior_precision, w,
 		clutter_train = mog(size, prior_mu, prior_precision, std_noise, w)
 		time_ep = time.time()
 		for i in xrange(len(step)):
-			clutter_train.train_ep(X, step[i], learning_rate, mode[m])
+			clutter_train.train_ep(X, step[i], learning_rate, mode[m], c=None, clip=False)
 			t[m, i] = t[m, i] + time.time() - time_ep
 			y_pred, logZ_pred = clutter_train.predict(X_test)
 			y_pred_train, _ = clutter_train.predict(X)

@@ -1,5 +1,6 @@
 import numpy as np
 from comp_ep_functions import *
+from plot_error import find_cluster
 
 class mog(object):
 	def __init__(self, size, prior_mu, prior_precision, std = 1.0, w = 0.5):
@@ -183,7 +184,7 @@ class mog(object):
 		
 		return (logZ2 - logZ1) / delta
 		
-	def train_ep(self, y, num_iter, learning_rate, mode):
+	def train_ep(self, y, num_iter, learning_rate, mode, c, clip=False):
 		num_data = y.shape[0]
 		# initialising ep parameters
 		if self._ep_param_initialsed == False:
@@ -219,6 +220,15 @@ class mog(object):
 						self.update(ind, misx, isx, learning_rate)
 					
 		if mode == 'stochastic':
+			if clip is True:
+				print "SEP with clipping"
+                		#Ensure prior parameters are clipped                
+                		self.pMISx=self.clip_norm( self.pMISx, c)
+                		self.pISx= self.clip_norm( self.pISx, c)
+				#Ensure that the initial parameters of the approximating factors are clipped
+                		self.misx= self.clip_norm( self.misx, c)
+                		self.isx= self.clip_norm( self.isx, c)
+
 			for epoch in xrange(num_iter):
 				for i in xrange(num_data):
 					ind = i#np.random.randint(num_data)
@@ -226,6 +236,10 @@ class mog(object):
 					mean, cov, r = gmm_updates([y[ind], self.w, self.sig_noise], SIG, MU, \
 						approx_x = True, full_cov = self.full_cov)
 					misx, isx, success = self.comp_local_updates(mean, cov, MU, SIG)
+					if clip is True:
+						#Ensure the new f_n parameters are bounded by c, otherwise we clip them.
+                        			misx=self.clip_norm( misx, c)
+                        			isx=self.clip_norm( isx, c)
 					if success:
 						self.update_stochastic(1, misx, isx, learning_rate)
 			
@@ -250,4 +264,34 @@ class mog(object):
 			logZ_pred[i] = logZ
 			
 		return y_pred, logZ_pred
+
+	def clip_norm(self, item, c):
+        	norm_item = np.linalg.norm(item)
+        	item= item / max( 1, norm_item / c)
+
+        	return item		
+
+	def compute_mse(self, true_mean, true_var):
+		# compute the mse.
+		SIG = (self.pISx + self.ISx)
+		MU = self.pMISx + self.MISx
+		if self.full_cov is False:
+			SIG = 1.0 / SIG
+			MU = MU * SIG
+		else:
+			for j in xrange(self.J):
+				SIG[j] = np.linalg.inv(SIG[j])
+				MU[j] = np.dot(SIG[j], MU[j])
+
+		#First find the cluster (Gaussian component) by finding the minimum distance between aech true means and the approximated ones.
 		
+		label=find_cluster(true_mean, MU, self.J)
+		err_mean=0
+		err_var=0
+		for i in xrange(self.J):
+			err_mean += ((true_mean[i] - MU[label[i]]) ** 2).sum() / float(self.J)
+			err_var += ((true_var[i] - SIG[label[j]]) ** 2).sum() / float(self.J)
+		#mse_mean.append(err_mean)
+		#mse_var.append(err_var)
+
+		return err_mean, err_var
