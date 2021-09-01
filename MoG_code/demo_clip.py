@@ -27,8 +27,8 @@ def kl_approx(mu1, sig1, mu2, sig2):
 	
 	return KL / 2.0
 
-def demo_clutter(seed, step, num_data, num_group, size, prior_precision, w, 
-		std_noise, show=False, dim = [0, 1], c=10, clip=False):
+def demo_clutter(seed, step, num_data, num_group, size, prior_precision, w,
+		std_noise, show=False, dim = [0, 1], c=10, clip=False, learning_rate=0.1):
 	print"C value ${0}".format(c)
 	# generate data
 	np.random.seed(seed*10)
@@ -101,7 +101,7 @@ def demo_clutter(seed, step, num_data, num_group, size, prior_precision, w,
 	# learning options
 	#mode = ['full', 'stochastic', 'adf']
 	mode=['stochastic']
-	learning_rate = 0.1
+	#learning_rate = 0.1
 	#ll = np.zeros([len(mode), num_track])	# for test likelihood
 	#t = np.zeros([len(mode), num_track])		# for training time
 
@@ -220,51 +220,57 @@ if __name__ == '__main__':
 	#ll = np.zeros([len_c, num_test, num_mode, num_track])
 	#time_ep = np.zeros([len_c, num_test, num_mode, num_track])
 	dim = [0, 1]
-	fnorm_mean=[]
-	fnorm_cov=[]
+	gamma=np.arange(0, 201, 10)
 	
-	
-	print 'settings:'
-	print 'N_train_data = %d, dim = %d, N_clusters = %d, full Cov matrix = %s,' \
-		% (num_data, size, num_group, full_cov)
-	print 'total number of epochs = %d' % step.sum()
-	for i in xrange(num_test):
-		for j in xrange(len_c):
-			show = (i >= (num_test-1))
-			err_mean, err_cov= demo_clutter(seed[i], step, num_data, num_group, \
-				size, prior_precision, w, std_noise, show=show, dim=dim, c=c[j], clip=True)
-			fnorm_mean.append(err_mean)
-			fnorm_cov.append(err_cov)
-		sep_err_mean, sep_err_cov=demo_clutter(seed[i], step, num_data, num_group, \
-                                size, prior_precision, w, std_noise, show=show, dim=dim, c=c[j], clip=False)
+	for k in xrange(len(gamma)):
+		learning_rate= float(gamma[k]) / num_data
+		print 'The gamma is {}'.format(gamma[k])
+		print 'The learnign rate is {}'.format(learning_rate)
 
-	sep_mean=np.repeat(sep_err_mean, len(c))
-	sep_cov=np.repeat(sep_err_cov, len(c))
-	fnorm_mean=np.array(fnorm_mean)
-	fnorm_cov=np.array(fnorm_cov)
-	
-	#Plotting the results
-	fig, ax = pyplot.subplots(2, 1, figsize=(5, 4))
-	ax[0].plot(c, fnorm_mean, label="clipping SEP")
-	ax[0].plot(c, sep_mean, label="SEP")
-	ax[0].set_ylabel('Mean')  # Add a y-label to the axes.
-	ax[0].get_xaxis().set_ticks(c)
+		fnorm_mean=[]
+  	        fnorm_cov=[]
 
-	ax[1].plot(c, fnorm_cov, label="clipping SEP")
-	ax[1].plot(c, sep_cov, label="SEP")
-	ax[1].set_xlabel('Clipping value C')
-	ax[1].set_ylabel('Covariance')
-	ax[1].get_xaxis().set_ticks(c)
-	ax[1].set_yscale("log")
-	fig.suptitle("Averaged F-norm") 
-	ax[0].legend()
-	ax[1].legend()
+		print 'settings:'
+		print 'N_train_data = %d, dim = %d, N_clusters = %d, full Cov matrix = %s, learning_rate=%s' \
+			% (num_data, size, num_group, full_cov, learning_rate)
+		print 'total number of epochs = %d' % step.sum()
+		for i in xrange(num_test):
+			for j in xrange(len_c):
+				show = (i >= (num_test-1))
+				err_mean, err_cov= demo_clutter(seed[i], step, num_data, num_group, \
+					size, prior_precision, w, std_noise, show=show, dim=dim, c=c[j], clip=True, learning_rate=learning_rate)
+				fnorm_mean.append(err_mean)
+				fnorm_cov.append(err_cov)
+			sep_err_mean, sep_err_cov=demo_clutter(seed[i], step, num_data, num_group, \
+                        	        size, prior_precision, w, std_noise, show=show, dim=dim, c=c[j], clip=False, learning_rate=learning_rate)
+
+		sep_mean=np.repeat(sep_err_mean, len(c))
+		sep_cov=np.repeat(sep_err_cov, len(c))
+		fnorm_mean=np.array(fnorm_mean)
+		fnorm_cov=np.array(fnorm_cov)
 	
-	#Save the generated plot
-	cur_path = os.path.dirname(os.path.abspath(__file__))
-	save_path=os.path.join(cur_path, 'results')
-	if not os.path.exists(save_path):
-        	os.makedirs(save_path)
-	filename='SEP_fnorm_clipping_step={}.pdf'.format(step[-1])
-	fig.savefig(os.path.join(save_path, filename), format="pdf")
+		#Plotting the results
+		fig, ax = pyplot.subplots(2, 1, figsize=(5, 4))
+		ax[0].plot(c, fnorm_mean, label="clipping SEP")
+		ax[0].plot(c, sep_mean, label="SEP")
+		ax[0].set_ylabel('Mean')  # Add a y-label to the axes.
+		ax[0].get_xaxis().set_ticks(c)
+
+		ax[1].plot(c, fnorm_cov, label="clipping SEP")
+		ax[1].plot(c, sep_cov, label="SEP")
+		ax[1].set_xlabel('Clipping value C')
+		ax[1].set_ylabel('Covariance')
+		ax[1].get_xaxis().set_ticks(c)
+		ax[1].set_yscale("log")
+		fig.suptitle("Averaged F-norm") 
+		ax[0].legend()
+		ax[1].legend()
+	
+		#Save the generated plot
+		cur_path = os.path.dirname(os.path.abspath(__file__))
+		save_path=os.path.join(cur_path, 'results')
+		if not os.path.exists(save_path):
+	        	os.makedirs(save_path)
+		filename='SEP_fnorm_clipping_step={}_learning_rate={}.pdf'.format(step[-1], learning_rate)
+		fig.savefig(os.path.join(save_path, filename), format="pdf")
 
