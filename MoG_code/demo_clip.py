@@ -120,7 +120,7 @@ def demo_clutter(seed, step, num_data, num_group, size, prior_precision, w,
 		clutter_train = mog(size, prior_mu, prior_precision, std_noise, w)
 		time_ep = time.time()
 		for i in xrange(len(step)):
-			clutter_train.train_ep(X, step[i], learning_rate, mode[m], c, clip=clip)
+			clutter_train.train_ep(X, step[i], learning_rate, mode[m], c, clip=clip, is_private=False, epsilon=1.0, delta=1e-6)
 		#	t[m, i] = t[m, i] + time.time() - time_ep
 			y_pred, logZ_pred = clutter_train.predict(X_test)
 			y_pred_train, _ = clutter_train.predict(X)
@@ -220,7 +220,7 @@ if __name__ == '__main__':
 	#ll = np.zeros([len_c, num_test, num_mode, num_track])
 	#time_ep = np.zeros([len_c, num_test, num_mode, num_track])
 	dim = [0, 1]
-	gamma=np.arange(0, 201, 10)
+	gamma=np.arange(190, 201, 10)
 	
 	for k in xrange(len(gamma)):
 		learning_rate= float(gamma[k]) / num_data

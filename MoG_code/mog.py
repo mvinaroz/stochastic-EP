@@ -118,7 +118,7 @@ class mog(object):
 		self.ISx = self.ISx + self.isx[ind]
 		self.MISx = self.MISx + self.misx[ind]
 		
-	def update_stochastic(self, minibatch, misx, isx, xi):
+	def update_stochastic(self, minibatch, misx, isx, xi, is_private, epsilon, delta, num_iter, c):
 		tmp = self.ISx + xi * (isx - self.isx) * minibatch
 		for j in xrange(self.J):
 			if not self.check_positive_definiteness(tmp[j]):
@@ -129,6 +129,13 @@ class mog(object):
 		self.misx = (1 - xi) * self.misx + xi * misx
 		self.ISx = self.ISx + self.isx * minibatch
 		self.MISx = self.MISx + self.misx * minibatch
+		if is_private is True:
+			prob=1.0/ float(self.num_data)
+			self.ISx= self.perturb_parameter(self.ISx, epsilon, delta, prob,  num_iter, c, xi)
+			self.MISx= self.perturb_parameter(self.MISx, epsilon, delta, prob,  num_iter, c, xi)
+		else:
+			pass
+
 		self.isx = self.ISx / float(self.num_data)
 		self.misx = self.MISx / float(self.num_data)
 		
@@ -184,7 +191,7 @@ class mog(object):
 		
 		return (logZ2 - logZ1) / delta
 		
-	def train_ep(self, y, num_iter, learning_rate, mode, c, clip=False):
+	def train_ep(self, y, num_iter, learning_rate, mode, c, clip=False, is_private=False, epsilon=1.0, delta=1e-6):
 		num_data = y.shape[0]
 		# initialising ep parameters
 		if self._ep_param_initialsed == False:
@@ -241,7 +248,7 @@ class mog(object):
                         			misx=self.clip_norm( misx, c)
                         			isx=self.clip_norm( isx, c)
 					if success:
-						self.update_stochastic(1, misx, isx, learning_rate)
+						self.update_stochastic(1, misx, isx, learning_rate, is_private, epsilon, delta, num_iter, c)
 			
 	def predict(self, X):
 		# predict the cluster label
@@ -295,3 +302,19 @@ class mog(object):
 		#mse_var.append(err_var)
 
 		return err_mean, err_var
+
+	def perturb_parameter(param, epsilon, delta, prob,  k, c, learning_rate):
+		""" Using RDP composition compute the sigma value for multiple rounds of subsampled mechanisms.
+    		Compute the noise as a function of epsilon, delta, number of runs of the algorithm (k) and 
+    		the proportion of randomly subsampled points at each step (prob) (in our case 1/N) """
+
+
+    		privacy_param== privacy_calibrator.gaussian_mech(epsilon,delta,prob=prob,k=k)
+
+    		#We need to multiply the sigma value by the sensitivity (2C*gamma/N) where gamma/N = learning_rate.
+    		std_noise= 2*c*learning_rate*privacy_param['sigma']
+
+    		noise= np.random.standard_normal(param.shape)*std_noise
+    		noised_param = param + noise
+    
+		return noised_param
