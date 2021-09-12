@@ -18,13 +18,13 @@ import numpy as np
 from scipy import linalg
 from pystan import StanModel
 
-from cython_util import (
-    copy_triu_to_tril,
-    auto_outer,
-    ravel_triu,
-    unravel_triu,
-    fro_norm_squared
-)
+#from cython_util import (
+#    copy_triu_to_tril,
+#    auto_outer,
+#    ravel_triu,
+#    unravel_triu,
+#    fro_norm_squared
+#)
 
 # LAPACK positive definite inverse routine
 dpotri_routine = linalg.get_lapack_funcs('potri')
@@ -475,10 +475,10 @@ def load_stan(filename, overwrite=False):
     elif os.path.isfile(filename+'.stan'):
         # Compiling and save the model
         if not overwrite:
-            print "Precompiled stan model {} not found.".format(filename+'.pkl')
-            print "Compiling and saving the model."
+            print("Precompiled stan model {} not found.".format(filename+'.pkl'))
+            print("Compiling and saving the model.")
         else:
-            print "Compiling and saving the model {}.".format(filename+'.pkl')
+            print("Compiling and saving the model {}.".format(filename+'.pkl'))
         if '/' in filename:
             model_name = filename.split('/')[-1]
         elif '\\' in filename:
@@ -488,7 +488,7 @@ def load_stan(filename, overwrite=False):
         sm = StanModel(file=filename+'.stan', model_name=model_name)
         with open(filename+'.pkl', 'wb') as f:
             pickle.dump(sm, f)
-        print "Compiling and saving done."
+        print("Compiling and saving done.")
     else:
         raise IOError("File {} or {} not found"
                       .format(filename+'.stan', filename+'.pkl'))
@@ -544,7 +544,7 @@ def distribute_groups(J, K, Nj):
         Nk = Nj.tolist()
         Njd = (Nj[:-1]+Nj[1:]).tolist()
         Nj_k = [1]*J
-        for _ in xrange(J-K):
+        for _ in range(J-K):
             ind = Njd.index(min(Njd))
             if ind+1 < len(Njd):
                 Njd[ind+1] += Nk[ind]
@@ -559,8 +559,8 @@ def distribute_groups(J, K, Nj):
         Nj_k = np.array(Nj_k)                   # Number of groups per site
         j_ind_k = np.empty(N, dtype=np.int32)   # Within site group index
         k_lim = np.concatenate(([0], np.cumsum(Nj_k)))
-        for k in xrange(K):
-            for ji in xrange(Nj_k[k]):
+        for k in range(K):
+            for ji in range(Nj_k[k]):
                 ki = ji + k_lim[k]
                 j_ind_k[j_lim[ki]:j_lim[ki+1]] = ji        
         return Nk, Nj_k, j_ind_k
@@ -575,7 +575,7 @@ def distribute_groups(J, K, Nj):
         # Split biggest groups until enough sites are formed
         ppg = np.ones(J, dtype=np.int64)    # Parts per group
         Nj2 = Nj.astype(np.float)
-        for _ in xrange(K-J):
+        for _ in range(K-J):
             cur_max = Nj2.argmax()
             ppg[cur_max] += 1
             Nj2[cur_max] = Nj[cur_max]/ppg[cur_max]
@@ -584,8 +584,8 @@ def distribute_groups(J, K, Nj):
         # Form the number of samples for each site
         Nk = np.empty(K, dtype=np.int64)
         k = 0
-        for j in xrange(J):
-            for kj in xrange(ppg[j]):
+        for j in range(J):
+            for kj in range(ppg[j]):
                 if kj < rem[j]:
                     Nk[k] = Nj2[j] + 1
                 else:

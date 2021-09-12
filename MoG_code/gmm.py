@@ -102,7 +102,7 @@ class model(object):
             beta = BETA
         
         # Regulate beta
-        for j in xrange(J):
+        for j in range(J):
             beta_sum = np.sum(beta[j])
             while np.abs(beta_sum) < B_ABS_MIN_SUM:
                 # Replace one random element in beta
@@ -114,7 +114,7 @@ class model(object):
         phi_true = beta
         
         X = np.empty(N, dtype=int)
-        for n in xrange(N):
+        for n in range(N):
             X[n] = rnd_data.choice(J, p = self.w)	# assign to the jth group
         y = beta[X] + rnd_data.randn(N, D)*self.sigma_noise
         
@@ -180,7 +180,7 @@ class model(object):
         j_lim = np.concatenate(([0], np.cumsum(Nj)))
         # Group indices for each sample
         j_ind = np.empty(N, dtype=np.int64)
-        for j in xrange(J):
+        for j in range(J):
             j_ind[j_lim[j]:j_lim[j+1]] = j
         
         if BETA is None:

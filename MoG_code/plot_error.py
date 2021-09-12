@@ -8,9 +8,9 @@ def find_cluster(m1, m2, num_group):
 	# find the corresponded cluster
 	ind = np.array(range(num_group))
 	res = []
-	for i in xrange(num_group):
+	for i in range(num_group):
 		mse = []
-		for j in xrange(len(ind)):
+		for j in range(len(ind)):
 			err = ((m1[i] - m2[ind[j]]) ** 2).sum()
 			mse.append(err)
 		mse = np.array(mse)
@@ -28,14 +28,14 @@ def comp_error(size, num_group, num_test):
 	time = 0
 	
 	# compute error
-	for test in xrange(num_test):
+	for test in range(num_test):
 		m_samp, var_samp, mean, cov, time_ep = pickle.load(f)
 		for o in option:
 			err_mean = []; err_var = []
-			for i in xrange(mean[o].shape[0]):
+			for i in range(mean[o].shape[0]):
 				label = find_cluster(m_samp, mean[o][i], num_group)
 				err_m = 0; err_v = 0
-				for j in xrange(num_group):
+				for j in range(num_group):
 					# taking averaged F-norm
 					err_m += np.sqrt(((m_samp[j] - mean[o][i][label[j]]) ** 2).sum()) / float(num_group)
 					err_v += np.sqrt(((var_samp[j] - cov[o][i][label[j]]) ** 2).sum()) / float(num_group)

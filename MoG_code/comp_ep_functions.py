@@ -45,7 +45,7 @@ def gmm_updates(data, Var, mean, approx_x = False, pred = False, full_cov = Fals
     D = y.shape[0]
     precision_tilted = []
     r_k = []
-    for k in xrange(K):
+    for k in range(K):
         if full_cov is True:
             #print full_cov
             Var_tilted = Var[k] + np.eye(D) * noise_sig	# matrix version
@@ -76,7 +76,7 @@ def gmm_updates(data, Var, mean, approx_x = False, pred = False, full_cov = Fals
 
     # compute updates (forward)
     MU = []; SIG = []
-    for k in xrange(K):
+    for k in range(K):
         if full_cov:
             dot_tmp = np.dot(Var[k], precision_tilted[k])	# matrix version
             dot_tmp2 = np.dot(dot_tmp, (y - mean[k]))	# matrix versioin
