@@ -1,6 +1,7 @@
 import numpy as np
 from comp_ep_functions import *
 from plot_error import find_cluster
+from autodp import privacy_calibrator
 
 class mog(object):
 	def __init__(self, size, prior_mu, prior_precision, std = 1.0, w = 0.5):
@@ -27,7 +28,7 @@ class mog(object):
 			self.pMISx = prior_mu * self.pISx
 		else:
 			self.pMISx = prior_mu
-			for j in xrange(self.J):
+			for j in range(self.J):
 				self.pMISx[j] = np.dot(self.pISx[j], self.pMISx[j])
 		
 	def _init_ep_params(self, num_data, mode = 'full'):
@@ -66,6 +67,7 @@ class mog(object):
 		if self.full_cov is False:
 			success = (matrix > 0).all()
 		else:
+			#print("The eigenvalues for the matrix are {}".format(np.linalg.eigvals(matrix)))
 			success = not (np.any(np.linalg.eigvals(matrix) <= 0))
 		return success
 	
@@ -77,7 +79,7 @@ class mog(object):
 		else:
 			Sn = self.pISx + self.ISx
 			Mn = (self.pMISx + self.MISx)
-			for j in xrange(self.J):
+			for j in range(self.J):
 				Sn[j] = np.linalg.inv(Sn[j])
 				Mn[j] = np.dot(Sn[j], Mn[j])
 		return Mn, Sn
@@ -89,7 +91,7 @@ class mog(object):
 		else:
 			Sn = self.pISx + self.ISx - self.isx[ind]
 			Mn = (self.pMISx + self.MISx - self.misx[ind])
-			for j in xrange(self.J):
+			for j in range(self.J):
 				Sn[j] = np.linalg.inv(Sn[j])
 				Mn[j] = np.dot(Sn[j], Mn[j])
 		return Mn, Sn
@@ -101,14 +103,14 @@ class mog(object):
 		else:
 			Sn = (self.pISx + self.ISx - self.isx)
 			Mn = (self.pMISx + self.MISx - self.misx)
-			for j in xrange(self.J):
+			for j in range(self.J):
 				Sn[j] = np.linalg.inv(Sn[j])
 				Mn[j] = np.dot(Sn[j], Mn[j])
 		return Mn, Sn
 		
 	def update(self, ind, misx, isx, xi):
 		tmp = self.ISx + xi * (isx - self.isx[ind])
-		for j in xrange(self.J):
+		for j in range(self.J):
 			if not self.check_positive_definiteness(tmp[j]):
 				return 0
 		self.ISx = self.ISx - self.isx[ind]
@@ -118,9 +120,9 @@ class mog(object):
 		self.ISx = self.ISx + self.isx[ind]
 		self.MISx = self.MISx + self.misx[ind]
 		
-	def update_stochastic(self, minibatch, misx, isx, xi, is_private, epsilon, delta, num_iter, c):
+	def update_stochastic(self, minibatch, misx, isx, xi, is_private, noise, c):
 		tmp = self.ISx + xi * (isx - self.isx) * minibatch
-		for j in xrange(self.J):
+		for j in range(self.J):
 			if not self.check_positive_definiteness(tmp[j]):
 				return 0
 		self.ISx = self.ISx - self.isx * minibatch
@@ -129,15 +131,25 @@ class mog(object):
 		self.misx = (1 - xi) * self.misx + xi * misx
 		self.ISx = self.ISx + self.isx * minibatch
 		self.MISx = self.MISx + self.misx * minibatch
+
+
 		if is_private is True:
+			print("The global mean before adding noise {}".format(self.MISx))
+			print("We are privatizing the global parameters")
 			prob=1.0/ float(self.num_data)
-			self.ISx= self.perturb_parameter(self.ISx, epsilon, delta, prob,  num_iter, c, xi)
-			self.MISx= self.perturb_parameter(self.MISx, epsilon, delta, prob,  num_iter, c, xi)
+			self.ISx= self.perturb_parameter(self.ISx, noise)
+			self.MISx= self.perturb_parameter(self.MISx, noise)
+			print("The global mean after adding noise {}".format(self.MISx))
 		else:
 			pass
 
 		self.isx = self.ISx / float(self.num_data)
 		self.misx = self.MISx / float(self.num_data)
+
+		if is_private is True:
+			#Ensure that the new updated approximating factor is bounded by C. (post-processing step)
+			self.isx=self.clip_norm( self.isx, c)
+			self.misx=self.clip_norm( self.misx, c)
 		
 	def comp_local_updates(self, mu_t, sig_t, mu_c, sig_c):
 		# compute local update
@@ -151,7 +163,7 @@ class mog(object):
 		else:
 			isx = np.zeros(sig_c.shape)
 			misx = np.zeros(mu_c.shape)
-			for j in xrange(self.J):
+			for j in range(self.J):
 				sig_t[j] = np.linalg.inv(sig_t[j])
 				sig_c[j] = np.linalg.inv(sig_c[j])
 				isx[j] = sig_t[j] - sig_c[j]
@@ -164,7 +176,7 @@ class mog(object):
 		# TODO: need to be changed
 		if self.mode == 'full':
 			logZ = 0
-			for ind in xrange(self.num_data):
+			for ind in range(self.num_data):
 				MU, SIG = self.comp_cavity(ind)
 				pdf1 = norm.pdf(y[ind], loc = MU, scale = np.sqrt(SIG + self.sig1))
 				pdf2 = norm.pdf(y[ind], loc = 0, scale = np.sqrt(self.sig2))
@@ -191,22 +203,24 @@ class mog(object):
 		
 		return (logZ2 - logZ1) / delta
 		
-	def train_ep(self, y, num_iter, learning_rate, mode, c, clip=False, is_private=False, epsilon=1.0, delta=1e-6):
+	def train_ep(self, y, num_iter, learning_rate, mode, noise,  c, clip=False, is_private=False):
 		num_data = y.shape[0]
+		
+		print("The value of is_private inside train_ep function is {}".format(is_private))
 		# initialising ep parameters
 		if self._ep_param_initialsed == False:
 			self._init_ep_params(num_data, mode)
 		# start training:
 		if mode == 'adf':
-			for epoch in xrange(num_iter):
-				for ind in xrange(num_data):
+			for epoch in range(num_iter):
+				for ind in range(num_data):
 					if self.full_cov is False:
 						SIG = 1.0 / (self.pISx + self.ISx)
 						MU = (self.pMISx + self.MISx) * SIG
 					else:
 						SIG = (self.pISx + self.ISx)
 						MU = (self.pMISx + self.MISx)
-						for j in xrange(self.J):
+						for j in range(self.J):
 							SIG[j] = np.linalg.inv(SIG[j])
 							MU[j] = np.dot(SIG[j], MU[j])
 					mean, cov, r = gmm_updates([y[ind], self.w, self.sig_noise], SIG, MU, \
@@ -217,8 +231,8 @@ class mog(object):
 						self.ISx += learning_rate * isx
 		
 		if mode == 'full':
-			for epoch in xrange(num_iter):
-				for ind in xrange(num_data):
+			for epoch in range(num_iter):
+				for ind in range(num_data):
 					MU, SIG = self.comp_cavity(ind)
 					mean, cov, r = gmm_updates([y[ind], self.w, self.sig_noise], SIG, MU, \
 						approx_x = True, full_cov = self.full_cov)
@@ -228,16 +242,17 @@ class mog(object):
 					
 		if mode == 'stochastic':
 			if clip is True:
-				print "SEP with clipping"
+				print("SEP with clipping")
                 		#Ensure prior parameters are clipped                
-                		self.pMISx=self.clip_norm( self.pMISx, c)
-                		self.pISx= self.clip_norm( self.pISx, c)
+				self.pMISx=self.clip_norm( self.pMISx, c)
+				self.pISx= self.clip_norm( self.pISx, c)
 				#Ensure that the initial parameters of the approximating factors are clipped
-                		self.misx= self.clip_norm( self.misx, c)
-                		self.isx= self.clip_norm( self.isx, c)
+				self.misx= self.clip_norm( self.misx, c)
+				self.isx= self.clip_norm( self.isx, c)
 
-			for epoch in xrange(num_iter):
-				for i in xrange(num_data):
+
+			for epoch in range(num_iter):
+				for i in range(num_data):
 					ind = i#np.random.randint(num_data)
 					MU, SIG = self.comp_cavity_stochastic()	
 					mean, cov, r = gmm_updates([y[ind], self.w, self.sig_noise], SIG, MU, \
@@ -248,8 +263,9 @@ class mog(object):
                         			misx=self.clip_norm( misx, c)
                         			isx=self.clip_norm( isx, c)
 					if success:
-						self.update_stochastic(1, misx, isx, learning_rate, is_private, epsilon, delta, num_iter, c)
-			
+						self.update_stochastic(1, misx, isx, learning_rate, is_private, noise, c)
+						#self.update_stochastic(1, misx, isx, learning_rate, is_private, noise_mean, noise_cov, c)
+
 	def predict(self, X):
 		# predict the cluster label
 		SIG = (self.pISx + self.ISx)
@@ -258,13 +274,13 @@ class mog(object):
 			SIG = 1.0 / SIG
 			MU = MU * SIG
 		else:
-			for j in xrange(self.J):
+			for j in range(self.J):
 				SIG[j] = np.linalg.inv(SIG[j])
 				MU[j] = np.dot(SIG[j], MU[j])
 		y_pred = np.zeros(X.shape[0], dtype = int)
 		logZ_pred = np.zeros(X.shape[0])
 		# TODO: need efficient implementation for processing multiple inputs together
-		for i in xrange(X.shape[0]):
+		for i in range(X.shape[0]):
 			r_k, logZ = gmm_updates([X[i], self.w, self.sig_noise], SIG, MU, pred = True, full_cov = self.full_cov)
 			# take the max
 			y_pred[i] = int(np.argmax(r_k))
@@ -273,10 +289,10 @@ class mog(object):
 		return y_pred, logZ_pred
 
 	def clip_norm(self, item, c):
-        	norm_item = np.linalg.norm(item)
-        	item= item / max( 1, norm_item / c)
+		norm_item = np.linalg.norm(item)
+		item= item / max( 1, norm_item / c)
 
-        	return item		
+		return item		
 
 	def compute_mse(self, true_mean, true_var):
 		# compute the mse.
@@ -286,7 +302,7 @@ class mog(object):
 			SIG = 1.0 / SIG
 			MU = MU * SIG
 		else:
-			for j in xrange(self.J):
+			for j in range(self.J):
 				SIG[j] = np.linalg.inv(SIG[j])
 				MU[j] = np.dot(SIG[j], MU[j])
 
@@ -295,7 +311,7 @@ class mog(object):
 		label=find_cluster(true_mean, MU, self.J)
 		err_mean=0
 		err_var=0
-		for i in xrange(self.J):
+		for i in range(self.J):
 			err_mean += ((true_mean[i] - MU[label[i]]) ** 2).sum() / float(self.J)
 			err_var += ((true_var[i] - SIG[label[j]]) ** 2).sum() / float(self.J)
 		#mse_mean.append(err_mean)
@@ -303,18 +319,11 @@ class mog(object):
 
 		return err_mean, err_var
 
-	def perturb_parameter(param, epsilon, delta, prob,  k, c, learning_rate):
-		""" Using RDP composition compute the sigma value for multiple rounds of subsampled mechanisms.
-    		Compute the noise as a function of epsilon, delta, number of runs of the algorithm (k) and 
-    		the proportion of randomly subsampled points at each step (prob) (in our case 1/N) """
+	def perturb_parameter(self, param, std_noise):
 
+		"""Redraw noise and add it to the natural parameter"""
+		noise= np.random.standard_normal(param.shape)*std_noise
+		noised_param = param + noise
 
-    		privacy_param== privacy_calibrator.gaussian_mech(epsilon,delta,prob=prob,k=k)
-
-    		#We need to multiply the sigma value by the sensitivity (2C*gamma/N) where gamma/N = learning_rate.
-    		std_noise= 2*c*learning_rate*privacy_param['sigma']
-
-    		noise= np.random.standard_normal(param.shape)*std_noise
-    		noised_param = param + noise
-    
 		return noised_param
+
