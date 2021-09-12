@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.stats import norm
 from scipy.stats import multivariate_normal
-from scipy.misc import logsumexp
+from scipy.special import logsumexp
 
 def comp_update(mean, cov, r, MU, SIG, sig1, average = 'none', return_mean = False):
 	# mean = r * (y - MU)

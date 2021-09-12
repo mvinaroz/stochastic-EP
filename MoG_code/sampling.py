@@ -28,7 +28,7 @@ def gmm_sampling(X, y, J, prior_mu, prior_precision, w, std_noise, seed_mcmc=0, 
     Sample the means of the components from the posterior
     """
     model_name = 'gmm2'
-    #print "Full model {} ...".format(model_name)
+    #print("Full model {} ...".format(model_name))
         
     seed = np.random.RandomState(seed=seed_mcmc)
     # Temp fix for the RandomState seed problem with pystan in 32bit Python
@@ -37,10 +37,10 @@ def gmm_sampling(X, y, J, prior_mu, prior_precision, w, std_noise, seed_mcmc=0, 
     # compute prior_cov using prior_precision  
     prior_cov = []
     if len(prior_precision.shape) == 2:	# diagonal matrix
-        for j in xrange(J):
+        for j in range(J):
             prior_cov.append(np.diag(1.0 / prior_precision[j]))
     else:
-        for j in xrange(J):
+        for j in range(J):
             prior_cov.append(np.linalg.inv(prior_precision[j]))
     prior_cov = np.array(prior_cov)
     
@@ -75,7 +75,7 @@ def gmm_sampling(X, y, J, prior_mu, prior_precision, w, std_noise, seed_mcmc=0, 
     samp = fit.extract(pars='phi')['phi']
     m_phi_full = samp.mean(axis=0)
     var_phi_full = []
-    for j in xrange(J):
+    for j in range(J):
         var_phi_full.append(np.cov(samp[:, j], rowvar = 0))
     var_phi_full = np.array(var_phi_full)
     samp_phi = np.copy(samp)
@@ -94,7 +94,7 @@ def gmm_sampling(X, y, J, prior_mu, prior_precision, w, std_noise, seed_mcmc=0, 
             var_phi_full = var_phi_full,
             samp_phi_full= samp_phi
         )
-        print "Full model results saved."
+        print("Full model results saved.")
     
     return m_phi_full, var_phi_full, samp_phi
 
