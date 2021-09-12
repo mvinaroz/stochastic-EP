@@ -19,6 +19,8 @@ tex/nips_sep.aux
 
 *.log
 
+*.pkl
+
 tex/nips_sep.bbl
 
 tex/nips_sep.bbl
