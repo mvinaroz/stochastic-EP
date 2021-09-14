@@ -296,6 +296,8 @@ class mog(object):
 
 	def compute_mse(self, true_mean, true_var):
 		# compute the mse.
+
+		#Compute the natural parameters for the global approximation.
 		SIG = (self.pISx + self.ISx)
 		MU = self.pMISx + self.MISx
 		if self.full_cov is False:
@@ -307,17 +309,58 @@ class mog(object):
 				MU[j] = np.dot(SIG[j], MU[j])
 
 		#First find the cluster (Gaussian component) by finding the minimum distance between aech true means and the approximated ones.
-		
 		label=find_cluster(true_mean, MU, self.J)
+		print("These are the correct labels: ", label)
+		#Compute the mse for each gaussian component and average them
 		err_mean=0
 		err_var=0
 		for i in range(self.J):
 			err_mean += ((true_mean[i] - MU[label[i]]) ** 2).sum() / float(self.J)
-			err_var += ((true_var[i] - SIG[label[j]]) ** 2).sum() / float(self.J)
+			err_var += ((true_var[i] - SIG[label[i]]) ** 2).sum() / float(self.J)
 		#mse_mean.append(err_mean)
 		#mse_var.append(err_var)
 
 		return err_mean, err_var
+
+	def averaged_KL(self, true_mean, true_var):
+		#Compute the KL divergence KL(global approx, ground truth) for each gaussian component and average them.
+
+		#Compute the natural parameters for the global approximation.
+		SIG = (self.pISx + self.ISx)
+		MU = self.pMISx + self.MISx
+		if self.full_cov is False:
+			SIG = 1.0 / SIG
+			MU = MU * SIG
+		else:
+			for j in range(self.J):
+				SIG[j] = np.linalg.inv(SIG[j])
+				MU[j] = np.dot(SIG[j], MU[j])
+
+		#First find the cluster (Gaussian component) by finding the minimum distance between aech true means and the approximated ones
+		label=find_cluster(true_mean, MU, self.J)
+		
+		kl_div=0
+		#Compute the KL divergence for a multivariate gaussian KL(global approx, ground truth).
+		for i in range(self.J):
+			mean_dif=true_mean[i]-MU[label[i]]
+			
+			inv_truth=np.linalg.inv(true_var[i])
+			inv_approx=np.linalg.inv(SIG[label[i]])
+
+			trace_term=np.trace(np.dot(inv_approx, SIG[label[i]]))
+
+			prod_term=np.dot(np.dot(mean_dif, inv_truth), mean_dif)
+			#prod_term=np.dot(mean_dif, inv_truth, mean_dif.transpose())
+			
+			det_truth=np.linalg.det(true_var[i])
+			det_approx=np.linalg.det(SIG[label[i]])
+
+			log_det=np.log(det_truth/det_approx)
+			
+			sum_term=0.5*(trace_term + prod_term + log_det - self.size)/self.J
+			kl_div+=sum_term
+
+		return kl_div
 
 	def perturb_mean(self, param, std_noise):
 

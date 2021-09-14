@@ -135,7 +135,9 @@ def demo_clutter(seed, step, num_data, num_group, size, prior_precision, w,
 				err_mean, err_cov=clutter_train.compute_mse(m_samp, var_samp)
 				print("The averaged F-norm for  the mean is {}".format(err_mean))
 				print("The averaged F-norm for  the covariance is {}".format(err_cov))
-	
+				kl_div=clutter_train.averaged_KL(m_samp, var_samp)
+				print("The averaged KL-divergence is {}".format(kl_div))
+
 	return err_mean, err_cov
 
 
@@ -160,6 +162,7 @@ def main():
 	fnorm_cov=[]
 	fnorm_mean_dp=[]
 	fnorm_cov_dp=[]
+
 	c=np.array(ar.c)
 	step = np.array([1, 2, 3, 4, 10, 30, 50, 100])
 	
