@@ -132,14 +132,12 @@ class mog(object):
 		self.ISx = self.ISx + self.isx * minibatch
 		self.MISx = self.MISx + self.misx * minibatch
 
-
 		if is_private is True:
-			print("The global mean before adding noise {}".format(self.MISx))
-			print("We are privatizing the global parameters")
-			prob=1.0/ float(self.num_data)
-			self.ISx= self.perturb_parameter(self.ISx, noise)
-			self.MISx= self.perturb_parameter(self.MISx, noise)
-			print("The global mean after adding noise {}".format(self.MISx))
+			#print("The global mean before adding noise {}".format(self.MISx))
+			#print("We are privatizing the global parameters")
+			self.ISx= self.perturb_cov(self.ISx, noise)
+			self.MISx= self.perturb_mean(self.MISx, noise)
+			#print("The global mean after adding noise {}".format(self.MISx))
 		else:
 			pass
 
@@ -150,7 +148,9 @@ class mog(object):
 			#Ensure that the new updated approximating factor is bounded by C. (post-processing step)
 			self.isx=self.clip_norm( self.isx, c)
 			self.misx=self.clip_norm( self.misx, c)
+
 		
+
 	def comp_local_updates(self, mu_t, sig_t, mu_c, sig_c):
 		# compute local update
 		# return no update if non-positive definite matrix
@@ -319,7 +319,7 @@ class mog(object):
 
 		return err_mean, err_var
 
-	def perturb_parameter(self, param, std_noise):
+	def perturb_mean(self, param, std_noise):
 
 		"""Redraw noise and add it to the natural parameter"""
 		noise= np.random.standard_normal(param.shape)*std_noise
@@ -327,3 +327,24 @@ class mog(object):
 
 		return noised_param
 
+	def perturb_cov(self, param, std_noise):
+
+		noise= np.random.standard_normal(param.shape)*std_noise
+		noise_triu=np.triu(noise, 0)
+
+		#Make the noise matrix symmetric for the covariance matrix.
+		for i in range(noise_triu.shape[0]):
+			for j in range(noise_triu.shape[1]):
+				for k in range(j, noise_triu.shape[2]):
+					noise_triu[i][k][j] = noise_triu[i][j][k]
+		
+		noised_param = param + noise_triu
+		
+		#Make the noised covariance matrix  positive definite
+		for i in range(noised_param.shape[0]):
+			w, v = np.linalg.eig(noised_param[i])
+			neg_idx = np.nonzero(w<=0)
+			w[neg_idx] = 0.0001
+			noised_param[i]=np.dot(v, np.dot(np.diag(w), v.transpose()))
+		#print("The noised cov matrix: ", noised_param)
+		return noised_param

@@ -218,7 +218,7 @@ def main():
 	save_path=os.path.join(cur_path, 'results')
 	if not os.path.exists(save_path):
 	        os.makedirs(save_path)
-	filename='SEP_fnorm_clipping_step={}_learning_rate={}_private={}_eps={}_delta={}.pdf'.format(step[-1], learning_rate, ar.is_private, ar.epsilon, ar.delta)
+	filename='SEP_fnorm_clipping_step={}_learning_rate={}_num_iter={}_private={}_eps={}_delta={}.pdf'.format(step[-1], learning_rate,step.sum(), ar.is_private, ar.epsilon, ar.delta)
 	fig.savefig(os.path.join(save_path, filename), format="pdf")
 
 
