@@ -27,6 +27,6 @@ tex/nips_sep.bbl
 
 MoG_code/results
 
-tex/
+/stochastic-EP/tex/.gitignore
 
 SEP Cam Tue talk/
