@@ -1,6 +1,6 @@
 import numpy as np
 from scipy.stats import norm
-from scipy.misc import logsumexp
+from scipy.special import logsumexp
 
 def kl_approx(mu1, sig1, mu2, sig2, size = 1):
 	# compute KL divergence between 2 Gaussians

@@ -99,36 +99,36 @@ def demo_clutter(seed, step, num_data, num_group, size, prior_precision, w,
 			prob= 1. / num_data #Uniformly sample without replacement.
 
 			#Non-splitted privacy budget version 
-			k= 2*num_data*total_iter #Times we rund the algorithm (times we compose dp mechanisms)
-			privacy_param= privacy_calibrator.gaussian_mech(epsilon,delta,prob=prob,k=k)
+			#k= 2*num_data*total_iter #Times we rund the algorithm (times we compose dp mechanisms)
+			#privacy_param= privacy_calibrator.gaussian_mech(epsilon,delta,prob=prob,k=k)
 
 			#Splitting the privacy budget among the parameters
-			#k=num_data*total_iter
-			#eps_mean=epsilon/3
-			#eps_cov=epsilon - eps_mean
-			#delta_mean=delta/3
-			#delta_cov= delta - delta_mean
-			#privacy_param_mean= privacy_calibrator.gaussian_mech(eps_mean,delta_mean,prob=prob,k=k)
-			#privacy_param_cov= privacy_calibrator.gaussian_mech(eps_cov,delta_cov,prob=prob,k=k)
+			k=num_data*total_iter
+			eps_mean=4*epsilon/5
+			eps_cov=epsilon - eps_mean
+			delta_mean=4*delta/5
+			delta_cov= delta - delta_mean
+			privacy_param_mean= privacy_calibrator.gaussian_mech(eps_mean,delta_mean,prob=prob,k=k)
+			privacy_param_cov= privacy_calibrator.gaussian_mech(eps_cov,delta_cov,prob=prob,k=k)
 
 			#We need to multiply the sigma value by the sensitivity (2C*gamma/N) where gamma/N = learning_rate.
-			noise= 2*c*learning_rate*privacy_param['sigma']
-			print("The noise calculated is: {}".format(noise))
+			#noise= 2*c*learning_rate*privacy_param['sigma']
+			#print("The noise calculated is: {}".format(noise))
 			
-			#noise_mean=2*c*learning_rate*privacy_param_mean['sigma']
-			#noise_cov=2*c*learning_rate*privacy_param_cov['sigma']
-			#print("The noise for the mean is: {}".format(noise_mean))
-			#print("The noise for the covariance matrix is: {}".format(noise_cov))
+			noise_mean=2*c*learning_rate*privacy_param_mean['sigma']
+			noise_cov=2*c*learning_rate*privacy_param_cov['sigma']
+			print("The noise for the mean is: {}".format(noise_mean))
+			print("The noise for the covariance matrix is: {}".format(noise_cov))
 		else:
-			noise=0.0
-			#noise_mean=0.0
-			#noise_cov=0.0
+			#noise=0.0
+			noise_mean=0.0
+			noise_cov=0.0
 
 		for i in range(len(step)):
-			clutter_train.train_ep(X, step[i], learning_rate, mode[m], noise, c, clip=clip, \
+			clutter_train.train_ep(X, step[i], learning_rate, mode[m], noise_mean, noise_cov, c, clip=clip, \
 				is_private=is_private)
-			y_pred, logZ_pred = clutter_train.predict(X_test)
-			y_pred_train, _ = clutter_train.predict(X)
+			y_pred, logZ_pred = clutter_train.predict(X_test, m_samp)
+			y_pred_train, _ = clutter_train.predict(X, m_samp)
 			
 			if i==(len(step)-1):
 				print("Computing averaged F-norm")
@@ -164,7 +164,7 @@ def main():
 	fnorm_cov_dp=[]
 
 	c=np.array(ar.c)
-	step = np.array([1, 2, 3, 4, 10, 30, 50, 100])
+	step = np.array([ar.num_iter])
 	
 
 	print('settings:')
@@ -176,19 +176,19 @@ def main():
 			err_mean_dp, err_cov_dp= demo_clutter(ar.seed[i], step, ar.num_data, ar.num_group, \
 					ar.dimension, prior_precision, w, ar.std, c=c[j], clip=ar.clip, \
 					learning_rate=learning_rate, is_private=ar.is_private, epsilon=ar.epsilon, delta=ar.delta)
-			fnorm_mean_dp.append(err_mean_dp)
-			fnorm_cov_dp.append(err_cov_dp)
+#			fnorm_mean_dp.append(err_mean_dp)
+#			fnorm_cov_dp.append(err_cov_dp)
 			
 			#Non-private clipped version
-			err_mean, err_cov= demo_clutter(ar.seed[i], step, ar.num_data, ar.num_group, \
-                                        ar.dimension, prior_precision, w, ar.std, c=c[j], clip=ar.clip, \
-                                        learning_rate=learning_rate, is_private=False, epsilon=ar.epsilon, delta=ar.delta)
-			fnorm_mean.append(err_mean)
-			fnorm_cov.append(err_cov)
+#			err_mean, err_cov= demo_clutter(ar.seed[i], step, ar.num_data, ar.num_group, \
+#                                        ar.dimension, prior_precision, w, ar.std, c=c[j], clip=ar.clip, \
+#                                        learning_rate=learning_rate, is_private=False, epsilon=ar.epsilon, delta=ar.delta)
+#			fnorm_mean.append(err_mean)
+#			fnorm_cov.append(err_cov)
 
-		sep_err_mean, sep_err_cov=demo_clutter(ar.seed[i], step, ar.num_data, ar.num_group, \
-                	ar.dimension, prior_precision, w, ar.std, c=c[j],  clip=False, \
-			learning_rate=learning_rate, is_private=False, epsilon=ar.epsilon, delta=ar.delta)
+#		sep_err_mean, sep_err_cov=demo_clutter(ar.seed[i], step, ar.num_data, ar.num_group, \
+#                	ar.dimension, prior_precision, w, ar.std, c=c[j],  clip=False, \
+#			learning_rate=learning_rate, is_private=False, epsilon=ar.epsilon, delta=ar.delta)
 	
 	sep_mean=np.repeat(sep_err_mean, len(c))
 	sep_cov=np.repeat(sep_err_cov, len(c))
@@ -198,31 +198,31 @@ def main():
 	fnorm_cov_dp=np.array(fnorm_cov_dp)
 
 	#Plotting the results
-	fig, ax = pyplot.subplots(2, 1, figsize=(5, 4))
-	ax[0].plot(c, fnorm_mean_dp, label="DP-SEP")
-	ax[0].plot(c, fnorm_mean, label="clipping SEP")
-	ax[0].plot(c, sep_mean, label="SEP")
-	ax[0].set_ylabel('Mean')  # Add a y-label to the axes.
-	ax[0].get_xaxis().set_ticks(c)
+#	fig, ax = pyplot.subplots(2, 1, figsize=(5, 4))
+#	ax[0].plot(c, fnorm_mean_dp, label="DP-SEP")
+#	ax[0].plot(c, fnorm_mean, label="clipping SEP")
+#	ax[0].plot(c, sep_mean, label="SEP")
+#	ax[0].set_ylabel('Mean')  # Add a y-label to the axes.
+#	ax[0].get_xaxis().set_ticks(c)
 
-	ax[1].plot(c, fnorm_cov_dp, label="DP-SEP")
-	ax[1].plot(c, fnorm_cov, label="clipping SEP")
-	ax[1].plot(c, sep_cov, label="SEP")
-	ax[1].set_xlabel('Clipping value C')
-	ax[1].set_ylabel('Covariance')
-	ax[1].get_xaxis().set_ticks(c)
-	ax[1].set_yscale("log")
-	fig.suptitle("Averaged F-norm") 
-	ax[0].legend()
-	ax[1].legend()
+#	ax[1].plot(c, fnorm_cov_dp, label="DP-SEP")
+#	ax[1].plot(c, fnorm_cov, label="clipping SEP")
+#	ax[1].plot(c, sep_cov, label="SEP")
+#	ax[1].set_xlabel('Clipping value C')
+#	ax[1].set_ylabel('Covariance')
+#	ax[1].get_xaxis().set_ticks(c)
+#	ax[1].set_yscale("log")
+#	fig.suptitle("Averaged F-norm") 
+#	ax[0].legend()
+#	ax[1].legend()
 	
 	#Save the generated plot
-	cur_path = os.path.dirname(os.path.abspath(__file__))
-	save_path=os.path.join(cur_path, 'results')
-	if not os.path.exists(save_path):
-	        os.makedirs(save_path)
-	filename='SEP_fnorm_clipping_step={}_learning_rate={}_num_iter={}_private={}_eps={}_delta={}.pdf'.format(step[-1], learning_rate,step.sum(), ar.is_private, ar.epsilon, ar.delta)
-	fig.savefig(os.path.join(save_path, filename), format="pdf")
+#	cur_path = os.path.dirname(os.path.abspath(__file__))
+#	save_path=os.path.join(cur_path, 'results')
+#	if not os.path.exists(save_path):
+#	        os.makedirs(save_path)
+#	filename='SEP_fnorm_clipping_step={}_learning_rate={}_num_iter={}_private={}_eps={}_delta={}.pdf'.format(step[-1], learning_rate,step.sum(), ar.is_private, ar.epsilon, ar.delta)
+#	fig.savefig(os.path.join(save_path, filename), format="pdf")
 
 
 

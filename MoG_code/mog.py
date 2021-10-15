@@ -120,7 +120,7 @@ class mog(object):
 		self.ISx = self.ISx + self.isx[ind]
 		self.MISx = self.MISx + self.misx[ind]
 		
-	def update_stochastic(self, minibatch, misx, isx, xi, is_private, noise, c):
+	def update_stochastic(self, minibatch, misx, isx, xi, is_private, noise_mean, noise_cov, c):
 		tmp = self.ISx + xi * (isx - self.isx) * minibatch
 		for j in range(self.J):
 			if not self.check_positive_definiteness(tmp[j]):
@@ -135,8 +135,8 @@ class mog(object):
 		if is_private is True:
 			#print("The global mean before adding noise {}".format(self.MISx))
 			#print("We are privatizing the global parameters")
-			self.ISx= self.perturb_cov(self.ISx, noise)
-			self.MISx= self.perturb_mean(self.MISx, noise)
+			self.ISx= self.perturb_cov(self.ISx, noise_cov)
+			self.MISx= self.perturb_mean(self.MISx, noise_mean)
 			#print("The global mean after adding noise {}".format(self.MISx))
 		else:
 			pass
@@ -203,10 +203,11 @@ class mog(object):
 		
 		return (logZ2 - logZ1) / delta
 		
-	def train_ep(self, y, num_iter, learning_rate, mode, noise,  c, clip=False, is_private=False):
+	def train_ep(self, y, num_iter, learning_rate, mode, noise_mean, noise_cov,  c, clip=False, is_private=False):
 		num_data = y.shape[0]
 		
 		print("The value of is_private inside train_ep function is {}".format(is_private))
+		print("this is c={}, learning_rate={}".format(c, learning_rate))
 		# initialising ep parameters
 		if self._ep_param_initialsed == False:
 			self._init_ep_params(num_data, mode)
@@ -263,10 +264,10 @@ class mog(object):
                         			misx=self.clip_norm( misx, c)
                         			isx=self.clip_norm( isx, c)
 					if success:
-						self.update_stochastic(1, misx, isx, learning_rate, is_private, noise, c)
-						#self.update_stochastic(1, misx, isx, learning_rate, is_private, noise_mean, noise_cov, c)
+						#self.update_stochastic(1, misx, isx, learning_rate, is_private, noise, c)
+						self.update_stochastic(1, misx, isx, learning_rate, is_private, noise_mean, noise_cov, c)
 
-	def predict(self, X):
+	def predict(self, X, true_mean):
 		# predict the cluster label
 		SIG = (self.pISx + self.ISx)
 		MU = self.pMISx + self.MISx
@@ -279,6 +280,14 @@ class mog(object):
 				MU[j] = np.dot(SIG[j], MU[j])
 		y_pred = np.zeros(X.shape[0], dtype = int)
 		logZ_pred = np.zeros(X.shape[0])
+
+		#First find the cluster (Gaussian component) by finding the minimum distance between aech true means and the approximated ones.
+		label=find_cluster(true_mean, MU, self.J)
+		print("These are the correct labels: ", label)
+		#Rearrange the components as in the truth ones.
+		MU=MU[label]
+		SIG=SIG[label]
+
 		# TODO: need efficient implementation for processing multiple inputs together
 		for i in range(X.shape[0]):
 			r_k, logZ = gmm_updates([X[i], self.w, self.sig_noise], SIG, MU, pred = True, full_cov = self.full_cov)
