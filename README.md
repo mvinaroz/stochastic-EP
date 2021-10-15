@@ -1,5 +1,5 @@
-# stochastic-EP
-code for stochastic expectation propagation
+# DP-EP
+code for differentially private stochastic expectation propagation (DP-SEP)
 
 
 ## Repository Structure
