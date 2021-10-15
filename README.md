@@ -1,4 +1,4 @@
-# DP-EP
+# DP-SEP
 code for differentially private stochastic expectation propagation (DP-SEP)
 
 
