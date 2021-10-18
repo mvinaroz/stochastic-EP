@@ -368,6 +368,7 @@ class mog(object):
 			
 			sum_term=0.5*(trace_term + prod_term + log_det - self.size)/self.J
 			kl_div+=sum_term
+			kl_div=abs(kl_div)
 
 		return kl_div
 
