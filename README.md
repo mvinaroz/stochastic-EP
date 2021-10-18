@@ -21,7 +21,12 @@ Versions numbers are based on our system and may not need to be exact matches.
 
 Contains the code for computing the DP-SEP experiments for MoG clustering.
 
--For plotting Figure 1 run the following command: `python plot_cluster.py --is-private --num-data 1000 --num-iter 100 --c 1 --gamma 1 --delta 1e-5`
+- For plotting Figure 1 run the following command: `python plot_cluster.py --is-private --num-data 1000 --num-iter 100 --c 1 --gamma 1 --delta 1e-5`
+- For obtaining Table 1 errors run:
+    - SEP: `python demo_dpsep.py --num-data 1000 --dimension 4 --num_group 4 --num-iter 100 --gamma 1`
+    - DP_SEP: `python demo_dpsep.py --num-data 1000 --dimension 4 --num_group 4 --num-iter 100 --gamma 1 --clip --is-private --epsilon 1 --delta 1e-5` 
+      for different epsilon values.
+
  
 ### pbp_code
 
