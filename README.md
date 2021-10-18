@@ -19,7 +19,9 @@ Versions numbers are based on our system and may not need to be exact matches.
 
 ### MoG code
 
-Contains the code for computing the DP-SEP experiments for MoG clustering
+Contains the code for computing the DP-SEP experiments for MoG clustering.
+
+-For plotting Figure 1 run the following command: `python plot_cluster.py --is-private --num-data 1000 --num-iter 100 --c 1 --gamma 1 --delta 1e-5`
  
 ### pbp_code
 
