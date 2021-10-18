@@ -25,12 +25,12 @@ def get_args():
 
 	parser.add_argument('--num-iter', type=int, default=100, help='number of iterations to run the algorithm')
 	parser.add_argument('--model-name', type=str, default='stochastic', help='you can use stochastic')
-	parser.add_argument('--clip', default=True, help='for clipping the approximating factors')
-	parser.add_argument('--c', nargs='+', type=int,default=[20],  help=' list of clipping values', required=False)
+	parser.add_argument('--clip', default=False, action='store_true', help='for clipping the approximating factors')
+	parser.add_argument('--c', nargs='+', type=int,default=[1],  help=' list of clipping values', required=False)
 	#parser.add_argument('--c', default=20, help='clipping value')
 
 	# DP SPEC
-	parser.add_argument('--is-private', action='store_true', help='produces DP-SEP version, by default is False')
+	parser.add_argument('--is-private', default=False, action='store_true', help='produces DP-SEP version, by default is False')
 	parser.add_argument('--epsilon', type=float, default=1.0, help='epsilon in (epsilon, delta)-DP')
 	parser.add_argument('--delta', type=float, default=1e-6, help='delta in (epsilon, delta)-DP')
 	parser.add_argument('--gamma', type=float, default=1.0, help='damping factor used in the global approximation update')
@@ -137,6 +137,8 @@ def demo_clutter(seed, step, num_data, num_group, size, prior_precision, w,
 				print("The averaged F-norm for  the covariance is {}".format(err_cov))
 				kl_div=clutter_train.averaged_KL(m_samp, var_samp)
 				print("The averaged KL-divergence is {}".format(kl_div))
+				f_norm_total=(err_mean + err_cov)/2
+				print("The averaged F-norm is {}".format(f_norm_total))
 
 	return err_mean, err_cov
 
@@ -190,12 +192,12 @@ def main():
 #                	ar.dimension, prior_precision, w, ar.std, c=c[j],  clip=False, \
 #			learning_rate=learning_rate, is_private=False, epsilon=ar.epsilon, delta=ar.delta)
 	
-	sep_mean=np.repeat(sep_err_mean, len(c))
-	sep_cov=np.repeat(sep_err_cov, len(c))
-	fnorm_mean=np.array(fnorm_mean)
-	fnorm_cov=np.array(fnorm_cov)
-	fnorm_mean_dp=np.array(fnorm_mean_dp)
-	fnorm_cov_dp=np.array(fnorm_cov_dp)
+#	sep_mean=np.repeat(sep_err_mean, len(c))
+#	sep_cov=np.repeat(sep_err_cov, len(c))
+#	fnorm_mean=np.array(fnorm_mean)
+#	fnorm_cov=np.array(fnorm_cov)
+#	fnorm_mean_dp=np.array(fnorm_mean_dp)
+#	fnorm_cov_dp=np.array(fnorm_cov_dp)
 
 	#Plotting the results
 #	fig, ax = pyplot.subplots(2, 1, figsize=(5, 4))
