@@ -17,10 +17,10 @@ Versions numbers are based on our system and may not need to be exact matches.
 
 ## Repository Structure
 
-###MoG code
+### MoG code
 
--Contains the code for computing the DP-SEP experiments for MoG clustering
+Contains the code for computing the DP-SEP experiments for MoG clustering
  
-###pbp_code
+### pbp_code
 
--Contains pbp experiments for regression datasets using EP, SEP, clipped SEP and DP-SEP. 
+Contains pbp experiments for regression datasets using EP, SEP, clipped SEP and DP-SEP. 
