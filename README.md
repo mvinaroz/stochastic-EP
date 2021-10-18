@@ -1,6 +1,19 @@
 # DP-SEP
 code for differentially private stochastic expectation propagation (DP-SEP)
 
+### Dependencies
+Versions numbers are based on our system and may not need to be exact matches. 
+
+    python 3.8
+    pystan 3.2
+    scikit-learn 0.24.2
+    scipy 1.6.2
+    seaborn 0.11.2
+    theano 1.0.5
+    autodp  0.2
+    matplotlib 3.4.3
+    numpy 1.21.2
+    pandas 1.3.3
 
 ## Repository Structure
 
