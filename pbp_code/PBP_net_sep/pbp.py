@@ -13,6 +13,8 @@ import network
 
 import prior
 
+import os
+
 class PBP:
 
     def __init__(self, layer_sizes, mean_y_train, std_y_train, fullEP):
@@ -61,13 +63,13 @@ class PBP:
         self.predict_deterministic = theano.function([ self.x ],
             self.network.output_deterministic(self.x))
 
-    def do_pbp(self, X_train, y_train, n_iterations):
+    def do_pbp(self, X_train, y_train, n_iterations, data_name, seed, n_hidden):
 
         if n_iterations > 0:
 
             # We first do a single pass
 
-            self.do_first_pass(X_train, y_train, True, c, is_private, noise)
+            self.do_first_pass(X_train, y_train, True)
 
             # We refine the prior
 
@@ -85,7 +87,7 @@ class PBP:
                 # We do one more pass
 
                 params = self.prior.get_params()
-                self.do_first_pass(X_train, y_train, True, c, is_private, noise)
+                self.do_first_pass(X_train, y_train, True)
 
                 # We refine the prior
 
@@ -95,6 +97,39 @@ class PBP:
                 
                 sys.stdout.write('{}\n'.format(i + 1))
                 sys.stdout.flush()
+                
+            params_last=self.prior.get_params()
+            #print("The mean prior parameters last run: ", params_last['m_w'])
+            #print("The variance prior parameter last run: ", params_last['v_w'])
+
+
+            #Save results
+            cur_path = os.path.dirname(os.path.abspath(__file__))
+            
+            #print(cur_path)
+            save_path=os.path.join(cur_path, '../settings')
+            if not os.path.exists(save_path):
+	            os.makedirs(save_path)
+
+
+            for item in range(len(params_last['m_w'])):
+                print("This is params last item: ", params_last['m_w'][item])
+                file_mean="prior_mean_{}_seed={}_n_iter={}_n_hidden={}_{}.csv".format(data_name, seed, n_iterations, n_hidden, item)
+                file_var="prior_var_{}_seed={}_n_iter={}_n_hidden={}_{}.csv".format(data_name, seed, n_iterations, n_hidden, item)
+
+                #open("settings/"+file_mean, 'w').close()
+                #open("settings/"+file_var, 'w').close()
+  
+                mean_to_file=params_last['m_w'][item]
+                mean_to_file=np.array(mean_to_file)
+
+                var_to_file=params_last['v_w'][item]
+                var_to_file=np.array(var_to_file)
+            
+                np.savetxt(os.path.join(save_path,file_mean), mean_to_file, delimiter=',')
+                np.savetxt(os.path.join(save_path,file_var), var_to_file, delimiter=',')
+        else:
+            pass
 
     def get_deterministic_output(self, X_test):
 
