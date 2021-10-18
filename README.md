@@ -31,3 +31,8 @@ Contains the code for computing the DP-SEP experiments for MoG clustering.
 ### pbp_code
 
 Contains pbp experiments for regression datasets using EP, SEP, clipped SEP and DP-SEP. 
+- To obtain Table 2 and Table 3 different seed errors with:
+    - EP: `python pbp_regression_ep.py --seed 1 --data-name naval --n-hidden 50 --epochs 40`
+    - SEP:
+    - clipping SEP:
+    - DP-SEP:
