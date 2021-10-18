@@ -85,7 +85,7 @@ def main():
 
     # We iterate the learning process
 
-    pbp_instance.do_pbp(X_train, y_train, ar.epochs)
+    pbp_instance.do_pbp(X_train, y_train, ar.epochs, ar.data_name, ar.seed, ar.n_hidden)
 
     # We obtain the test RMSE and the test ll
     m, v, v_noise = pbp_instance.get_predictive_mean_and_variance(X_test)
