@@ -8,22 +8,40 @@ import torch
 from aux_files import load_data
 import argparse
 import numpy as np
+import torch.optim as optim
 
-def loss(ms_vs, len_m, len_m_pri, len_v, X,  y, gam, lamb, num_samps):
-    # unpack ms_vs
-    init_m = ms_vs[0:len_m]
-    init_m_pri = ms_vs[len_m:len_m+len_m_pri]
-    init_v = ms_vs[len_m + len_m_pri:len_m + len_m_pri+len_v]
-    init_v_pri = ms_vs[len_m + len_m_pri + len_v:]
+class NN_Model(nn.Module):
 
-    # sig = F.relu()
+    def __init__(self, len_m, len_m_pri, len_v, num_samps, init_var_params, device):
+        super(NN_Model, self).__init__()
+        self.parameter = Parameter(torch.Tensor(init_var_params), requires_grad=True)
+        self.num_samps = num_samps
+        self.device = device
+        self.len_m = len_m
+        self.len_m_pri = len_m_pri
+        self.len_v = len_v
 
-    # this is just to check if gradient update wrt the variational parameters is properly done
-    out = torch.sum(init_m) + torch.sum(init_m_pri) + torch.sum(init_v) + torch.sum(init_v_pri) + torch.sum(X) + torch.sum(y)
+    def forward(self, x): # x is mini_batch_size by input_dim
 
-    # to do : implement actual loss here using samples drawn from the posterior
+        # unpack ms_vs
+        ms_vs = self.parameter
+        init_m = ms_vs[0:self.len_m]
+        init_m_pri = ms_vs[self.len_m:self.len_m + self.len_m_pri]
+        init_v = ms_vs[self.len_m + self.len_m_pri:self.len_m + self.len_m_pri + self.len_v]
+        init_v_pri = ms_vs[self.len_m + self.len_m_pri + self.len_v:]
 
-    # to do : add KL term
+        # to do : implement actual loss here using samples drawn from the posterior, i.e., eq(24)
+
+        # to do : add KL term, i.e., eq(20)
+
+        return pred_samps, KL_term
+
+
+def loss(pred_samps, KL_term, y, gam, lamb):
+
+    # write eq.(18) here
+    # out =
+
 
     return out
 
@@ -96,7 +114,15 @@ def main():
     lamb = 0.2
     num_samps = 10
 
-    output = loss(ms_vs, len_m, len_m_pri, len_v, torch.tensor(X_train), torch.tensor(y_train), gam, lamb, num_samps)
+    model = NN_Model(len_m, len_m_pri, len_v, num_samps, ms_vs, ar.device)
+    # optimizer = optim.SGD(importance.parameters(), lr=0.01)
+    optimizer = optim.Adam(model.parameters(), lr=0.001)
+
+    # training routine should start here.
+    # in every training step, you compute this
+    pred_samps, KL_term = model(torch.tensor(X_train)) # some portion of X_train if mini-batch learning is happening
+
+    output = loss(pred_samps, KL_term, torch.tensor(y_train), gam, lamb, num_samps)
     output.backward()
 
     print('output: ', output)
