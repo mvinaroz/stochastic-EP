@@ -24,8 +24,8 @@ class NN_Model(nn.Module):
         self.lamb = lamb
         self.data_dim = data_dim
 
-    def sigmoid(self, X):
-        return 1/(1+np.exp(-X))
+    def relu(self, X):
+        return max(0.0, X)
 
     def forward(self, x, y): # x is mini_batch_size by input_dim
 
@@ -67,7 +67,7 @@ class NN_Model(nn.Module):
             for x_n in range(x.shape[0]):
                 #print("This is datapoint x_n shape: ", x[x_n])
                 arg_sigmoid=torch.matmul(reshape_W_0, x[x_n]) + bias_0
-                sig=self.sigmoid(arg_sigmoid).view(50,1)
+                sig=self.relu(arg_sigmoid).view(50,1)
                 sig_prod=torch.matmul(sig, sig.T)
 
                 mult_m_sig=torch.matmul(init_m_pri.view(1,50).to(torch.float64), sig)
@@ -217,6 +217,10 @@ def main():
     gam = 0.1
     lamb = 0.2
     num_samps = 10
+
+    #Used on wine params.
+    a=288.7679
+    b=20080.5828
 
     model = NN_Model(len_m, len_m_pri, len_v, num_samps, ms_vs, device, gam, lamb, d)
     # optimizer = optim.SGD(importance.parameters(), lr=0.01)
