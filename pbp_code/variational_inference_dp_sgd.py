@@ -24,6 +24,9 @@ class NN_Model(nn.Module):
         self.lamb = lamb
         self.data_dim = data_dim
 
+    def sigmoid(self, X):
+        return 1/(1+np.exp(-X))
+
     def forward(self, x, y): # x is mini_batch_size by input_dim
 
         # unpack ms_vs
@@ -32,7 +35,7 @@ class NN_Model(nn.Module):
         init_m_pri = ms_vs[self.len_m:self.len_m + self.len_m_pri]
         init_v = ms_vs[self.len_m + self.len_m_pri:self.len_m + self.len_m_pri + self.len_v]
         init_v_pri = ms_vs[self.len_m + self.len_m_pri + self.len_v:]
-        print("this is init_v shape: ", init_v.shape[0])
+        print("this is init_m_pri shape: ", init_m_pri.shape[0])
 
         #reshape vars into (d_h, dim +1)
         reshape_v_init=torch.reshape(init_v, (init_v_pri.shape[0], self.data_dim+1 ))
@@ -42,19 +45,38 @@ class NN_Model(nn.Module):
 
 
         # to do : implement actual loss here using samples drawn from the posterior, i.e., eq(24)
-        #le's draw W_0 samples
-        W_0=torch.zeros(init_v.shape[0])
+        #let's compute V'.
+        V_pri=torch.diag(init_v_pri)
+        print("This is V_pri: ", V_pri)
+
+        #let's draw W_0 samples
+        W=torch.zeros(init_v.shape[0], dtype=torch.float64)
+
         for elem in range(init_v.shape[0]):
-            W_0[elem]=np.random.normal(init_m[elem].item(), init_v[elem].item()) #Add size= argument to draw the desired samples (L).
-        reshape_W_0=torch.reshape(W_0, (init_m_pri.shape[0], self.data_dim+1 ))
+            W[elem]=np.random.normal(init_m[elem].item(), init_v[elem].item()) #Add size= argument to draw the desired samples (L).
+        bias_0=W[:init_m_pri.shape[0]]
+        W_0=W[0:-50] 
+
+        reshape_W_0=torch.reshape(W_0, (init_m_pri.shape[0], self.data_dim))
 
         for x_n in range(x.shape[0]):
-            print("This is datapoint x_n shape: ", x[x_n].shape)
-        
+            #print("This is datapoint x_n shape: ", x[x_n])
+            arg_sigmoid=torch.matmul(reshape_W_0, x[x_n]) + bias_0
+            sig=self.sigmoid(arg_sigmoid).view(50,1)
+            sig_prod=torch.matmul(sig, sig.T)
 
-        print("This is the susampled W_0: ", reshape_W_0.shape)
+            mult_m_sig=torch.matmul(init_m_pri.view(1,50).to(torch.float64), sig)
+            first_term=(-self.gamma /2)*y[x_n]**2 - 2*y[x_n]*mult_m_sig[0,0].item()
 
 
+            mult_sigV=torch.matmul(sig_prod, V_pri.to(torch.float64))
+            trace_term=torch.trace(mult_sigV)
+            #print("This is trace shape: ", trace_term.item())
+
+            mult_mean_right=torch.matmul(init_m_pri.view(1,50).to(torch.float64), sig_prod)
+            last_term=torch.matmul(mult_mean_right, init_m_pri.view(50, 1).to(torch.float64))[0,0].item()
+
+            sum_over_n= first_term + trace_term + last_term
 
 
         # to do : add KL term, i.e., eq(20)
@@ -102,8 +124,7 @@ class NN_Model(nn.Module):
 
         return pred_samps, KL_term
 
-    def sigmoid(X):
-        return 1/(1+np.exp(-X))
+    
 
 
 def loss(pred_samps, KL_term, y, gam, lamb, num_samps):
