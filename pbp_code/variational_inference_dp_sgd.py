@@ -35,7 +35,7 @@ class NN_Model(nn.Module):
         init_m_pri = ms_vs[self.len_m:self.len_m + self.len_m_pri]
         init_v = ms_vs[self.len_m + self.len_m_pri:self.len_m + self.len_m_pri + self.len_v]
         init_v_pri = ms_vs[self.len_m + self.len_m_pri + self.len_v:]
-        print("this is init_m_pri shape: ", init_m_pri.shape[0])
+        #print("this is init_m_pri shape: ", init_m_pri.shape[0])
 
         #reshape vars into (d_h, dim +1)
         reshape_v_init=torch.reshape(init_v, (init_v_pri.shape[0], self.data_dim+1 ))
@@ -47,36 +47,44 @@ class NN_Model(nn.Module):
         # to do : implement actual loss here using samples drawn from the posterior, i.e., eq(24)
         #let's compute V'.
         V_pri=torch.diag(init_v_pri)
-        print("This is V_pri: ", V_pri)
+        #print("This is V_pri: ", V_pri)
 
-        #let's draw W_0 samples
-        W=torch.zeros(init_v.shape[0], dtype=torch.float64)
+        L=20
+        sum_pred_samps=0
 
-        for elem in range(init_v.shape[0]):
-            W[elem]=np.random.normal(init_m[elem].item(), init_v[elem].item()) #Add size= argument to draw the desired samples (L).
-        bias_0=W[:init_m_pri.shape[0]]
-        W_0=W[0:-50] 
+        for l in range(L):
 
-        reshape_W_0=torch.reshape(W_0, (init_m_pri.shape[0], self.data_dim))
+            #let's draw W_0 samples
+            W=torch.zeros(init_v.shape[0], dtype=torch.float64)
 
-        for x_n in range(x.shape[0]):
-            #print("This is datapoint x_n shape: ", x[x_n])
-            arg_sigmoid=torch.matmul(reshape_W_0, x[x_n]) + bias_0
-            sig=self.sigmoid(arg_sigmoid).view(50,1)
-            sig_prod=torch.matmul(sig, sig.T)
+            for elem in range(init_v.shape[0]):
+                W[elem]=np.random.normal(init_m[elem].item(), init_v[elem].item()) #Add size= argument to draw the desired samples (L).
+            bias_0=W[:init_m_pri.shape[0]]
+            W_0=W[0:-50] 
 
-            mult_m_sig=torch.matmul(init_m_pri.view(1,50).to(torch.float64), sig)
-            first_term=(-self.gamma /2)*y[x_n]**2 - 2*y[x_n]*mult_m_sig[0,0].item()
+            reshape_W_0=torch.reshape(W_0, (init_m_pri.shape[0], self.data_dim))
+
+            for x_n in range(x.shape[0]):
+                #print("This is datapoint x_n shape: ", x[x_n])
+                arg_sigmoid=torch.matmul(reshape_W_0, x[x_n]) + bias_0
+                sig=self.sigmoid(arg_sigmoid).view(50,1)
+                sig_prod=torch.matmul(sig, sig.T)
+
+                mult_m_sig=torch.matmul(init_m_pri.view(1,50).to(torch.float64), sig)
+                first_term=(-self.gamma /2)*y[x_n]**2 - 2*y[x_n]*mult_m_sig[0,0].item()
 
 
-            mult_sigV=torch.matmul(sig_prod, V_pri.to(torch.float64))
-            trace_term=torch.trace(mult_sigV)
-            #print("This is trace shape: ", trace_term.item())
+                mult_sigV=torch.matmul(sig_prod, V_pri.to(torch.float64))
+                trace_term=torch.trace(mult_sigV)
+                #print("This is trace shape: ", trace_term.item())
 
-            mult_mean_right=torch.matmul(init_m_pri.view(1,50).to(torch.float64), sig_prod)
-            last_term=torch.matmul(mult_mean_right, init_m_pri.view(50, 1).to(torch.float64))[0,0].item()
+                mult_mean_right=torch.matmul(init_m_pri.view(1,50).to(torch.float64), sig_prod)
+                last_term=torch.matmul(mult_mean_right, init_m_pri.view(50, 1).to(torch.float64))[0,0].item()
 
-            sum_over_n= first_term + trace_term + last_term
+                sum_over_n= first_term + trace_term + last_term
+            sum_pred_samps+=sum_over_n
+
+        pred_samps=sum_pred_samps/L
 
 
         # to do : add KL term, i.e., eq(20)
@@ -117,10 +125,9 @@ class NN_Model(nn.Module):
         kl_term2=0.5*(mult_lamb_vi + mult_m_pri +  sum_log_inv_lambv -  self.len_m_pri)
         print("this is kl_term2: ", kl_term2)
 
-
-        pred_samps=0
         KL_term=kl_term1 + kl_term2
         print("this is KL_term: ", KL_term)
+        print("this is pred_samps: ", pred_samps)
 
         return pred_samps, KL_term
 
@@ -130,8 +137,8 @@ class NN_Model(nn.Module):
 def loss(pred_samps, KL_term, y, gam, lamb, num_samps):
 
     # write eq.(18) here
-    out = 0
-
+    out = pred_samps - KL_term
+    print("This is out: ", out)
 
     return out
 
@@ -145,7 +152,7 @@ def get_args():
 
     # OPTIMIZATION
     parser.add_argument('--n-hidden', type=int, default=50, help='number of hidden units in the layer')
-    parser.add_argument("--batch-size, --bs", type=float, default=200)
+    parser.add_argument('--batch-size', '-bs', type=int, default=1000, help='batch size during training')
     parser.add_argument('--epochs', type=int, default=40)
     parser.add_argument("--normalize-data", action='store_true', default=True)
 
@@ -156,9 +163,11 @@ def get_args():
 
 def main():
     ar = get_args()
+    print(ar)
     np.random.seed(ar.seed)
     #device = 'cuda' if torch.cuda.is_available() else 'cpu'
     device='cpu'
+    batch_size=ar.batch_size
 
     # Load data.
     X_train, X_test, y_train, y_test = load_data(ar.data_name, ar.seed)
@@ -191,11 +200,12 @@ def main():
     # model specs and loss
 
     n, d = X_train.shape  # input dimension of data, depending on the dataset
-    print("This is data dimension: ", d)
+    num_iter = np.int(n / batch_size)
+    print("This is num datapoints: ", n)
     d_h = 50  # number of hidden units in the hidden layer
     # define the length of variational parameters
     len_m = d_h * (d + 1)  # length of mean parameters for W_0, where the size of W_0 is d_h by (d+1)
-    print("This is len_m: ", len_m)
+    #print("This is len_m: ", len_m)
     len_v = d_h * (d + 1)  # length of variance parameters for W_0
     len_m_pri = d_h  # length of mean parameters for w_1, where the size of w_1 is d_h
     len_v_pri = d_h  # length of variance parameters for w_1
@@ -212,14 +222,20 @@ def main():
     # optimizer = optim.SGD(importance.parameters(), lr=0.01)
     optimizer = optim.Adam(model.parameters(), lr=0.001)
 
+
     # training routine should start here.
-    # in every training step, you compute this
-    pred_samps, KL_term = model(torch.tensor(X_train), y_train) # some portion of X_train if mini-batch learning is happening
+    for epoch in range(1, ar.epochs + 1):
+        model.train()
 
-    output = loss(pred_samps, KL_term, torch.tensor(y_train), gam, lamb, num_samps)
-    #output.backward()
+        for i in range(num_iter):
+            # in every training step, you compute this
+            #I have to subsample data first.
+            pred_samps, KL_term = model(torch.tensor(X_train), y_train) # some portion of X_train if mini-batch learning is happening
 
-    print('output: ', output)
+            output = loss(pred_samps, KL_term, torch.tensor(y_train), gam, lamb, num_samps)
+            #output.backward()
+
+            print('output: ', output)
 
 
     # # We obtain the test RMSE and the test ll
