@@ -1,6 +1,9 @@
 import numpy as np
 from mog import mog
 import sys, time
+
+
+
 from comp_ground_truth import moment_numerical, kl_approx
 import matplotlib
 from matplotlib import pyplot
@@ -11,6 +14,12 @@ from sampling import gmm_sampling
 import os
 import argparse
 from autodp import privacy_calibrator
+from plot_error import find_cluster
+from comp_ep_functions import *
+
+
+
+
 
 color = ['r.', 'y.', 'g.', 'c.']
 
@@ -52,6 +61,29 @@ def preprocess_args(ar):
 		#ar.seed = np.random.randint(0, 1000)
 		ar.seed=[60]
 
+def compute_dpem_pred(X, true_mean, mu, sigma, w):
+	J = w.shape[0]	
+
+	y_pred = np.zeros(X.shape[0], dtype = int)
+	logZ_pred = np.zeros(X.shape[0])
+	
+	#First find the cluster (Gaussian component) by finding the minimum distance between aech true means and the approximated ones.
+	label=find_cluster(true_mean, mu, J)
+	#Rearrange the components as in the truth ones.
+
+	mu=mu[label]
+	sigma=sigma[label]
+	sig_noise=0.25
+
+	for i in range(X.shape[0]):
+			r_k, logZ = gmm_updates([X[i], w, sig_noise], sigma, mu, pred = True, full_cov = True)
+			# take the max
+			y_pred[i] = int(np.argmax(r_k))
+			logZ_pred[i] = logZ
+			
+	return y_pred, logZ_pred
+
+
 
 def demo_clutter(seed, step, num_data, num_group, size, prior_precision, w, 
 		std_noise, show=False, dim = [0, 1], learning_rate=0.1, c=10, clip=False, is_private=False, delta=1e-6):
@@ -68,7 +100,14 @@ def demo_clutter(seed, step, num_data, num_group, size, prior_precision, w,
 	print('simulating training data...')
 	data = model.simulate_data(num_data, seed=seed)
 	X = data['X']	# observations
+	#print("This is X: ", X)
+	#print("This is X.shape: ", X.shape)
+
 	y = data['y']	# cluster labels
+	#print("this is y shape: ", y.shape)
+	y_aux=np.reshape(y, (y.shape[0], 1))
+	#data_dpem=np.hstack((X, y_aux))
+	#np.savetxt("mog_data_seed6.csv", data_dpem, delimiter=",")
 	num_data = X.shape[0]
 	
 	# test data
@@ -78,14 +117,15 @@ def demo_clutter(seed, step, num_data, num_group, size, prior_precision, w,
 	X_test = data_test['X']
 	y_test = data_test['y']
 	
+	
 	if show:
 		alpha = 0.55
-		width = 5; hight = 3
+		width = 5; hight = 5
 		if is_private is False:
 			#We only show the ground truth, ep and sep predictions
 			fig1, ax1 = pyplot.subplots(1, 3, figsize=(width, hight))
 		else:
-			fig1, ax1 = pyplot.subplots(2, 3, figsize=(width, hight))
+			fig1, ax1 = pyplot.subplots(4, 3, figsize=(width, hight))
 		pyplot.title('test')
 		for n in range(X_test.shape[0]):
 			#print("This is y_test[n]: ", y_test[n])
@@ -106,6 +146,8 @@ def demo_clutter(seed, step, num_data, num_group, size, prior_precision, w,
 		print('computing the true posterior...')
 		m_samp, var_samp, samp = gmm_sampling(X, y, num_group, prior_mu, \
 			prior_precision, w, std_noise)
+		#print("This is the true mean posterior: ", m_samp)
+		#print("This is the true var posterior: ", var_samp)
 		# draw true posteior
 		if show:
 			bvn_full = BVN()
@@ -174,7 +216,53 @@ def demo_clutter(seed, step, num_data, num_group, size, prior_precision, w,
 				ax1[i, j].plot(e1, e2, 'k', linewidth=linewidth)
 				#ax2[i, j].plot(e1, e2, 'k', linewidth=linewidth)
 
-	#Now the private version
+	#The clipped SEP version.
+	print("Thesting clipped SEP version (NON-PRIVATE)")
+	
+	list_clips=[1, 10, 20]
+	for c1 in range(len(list_clips)): 
+         clutter_train_clipped = mog(size, prior_mu, prior_precision, std_noise, w)
+         for i in range(len(step)):
+            clutter_train_clipped.train_ep(X, step[i], learning_rate, 'stochastic', noise, noise, float(list_clips[c1]), clip=True, is_private=False)
+            y_pred, logZ_pred = clutter_train_clipped.predict(X_test, m_samp)
+            y_pred_train, _ = clutter_train_clipped.predict(X, m_samp)
+
+         if show:
+            i = 1
+            j = c1
+            for n in range(X_test.shape[0]):
+                ax1[i, j].plot(X_test[n, dim[0]], X_test[n, dim[1]], color[y_pred[n]], alpha=alpha)
+                ax1[i, j].set_title('clipped SEP c={}'.format(list_clips[c1]))
+                ax1[i, j].axis('off')
+
+            bvn = BVN()
+            cov = []; mean = []
+            for k in range(num_group):
+                if clutter_train_clipped.full_cov is True:
+                    cov.append(clutter_train_clipped.pISx[k][np.ix_(dim, dim)] \
+						+ clutter_train_clipped.ISx[k][np.ix_(dim, dim)])
+                    cov[-1] = np.linalg.inv(cov[-1])
+                    mean.append(clutter_train_clipped.pMISx[k][dim] \
+						+ clutter_train_clipped.MISx[k][dim])
+                    mean[-1] = np.dot(cov[-1], mean[-1])
+                else:
+                    cov.append(clutter_train_clipped.pISx[k][dim] \
+						+ clutter_train_clipped.ISx[k][dim])
+                    mean.append(clutter_train.pMISx[k][dim] \
+						+ clutter_train.MISx[k][dim])
+                    mean[-1] = mean[-1] / cov[-1]
+                    cov[-1] = np.eye(2) / cov[-1]
+            bvn.covars = cov
+            bvn.mean = np.array(mean)
+            make_ellipses(bvn, ax1[i, j], level=level)
+            
+            for k in range(num_group):
+                e1, e2 = gauss_ell(mean[k], cov[k], dim = [0,1], \
+					npoints = num_data, level =level)
+                ax1[i, j].plot(e1, e2, 'k', linewidth=linewidth)
+                #ax2[i, j].plot(e1, e2, 'k', linewidth=linewidth)
+
+	#The private version.
 	name = {'stochastic':'SEP'}
 	if is_private is True:
 		#print("Fitting with DPSEP for epsilon={}, delta={}, c={}, learning_rate={}".format(epsilon, delta, c, learning_rate))
@@ -221,7 +309,7 @@ def demo_clutter(seed, step, num_data, num_group, size, prior_precision, w,
 				y_pred_train, _ = clutter_train_dp.predict(X, m_samp)
 
 			if show:
-				i = 1
+				i = 2
 				j = h
 				for n in range(X_test.shape[0]):
 					#print("This is y_pred[n]: ", y_pred[n])
@@ -252,13 +340,151 @@ def demo_clutter(seed, step, num_data, num_group, size, prior_precision, w,
 				bvn.covars = cov
 				bvn.mean = np.array(mean)
 				make_ellipses(bvn, ax1[i, j], level=level)
-				print("THIS IS THE MEAN FOR THE PLOTS: ",  mean)
+				#print("THIS IS THE MEAN FOR THE PLOTS: ",  mean)
 
 				for k in range(num_group):
 					e1, e2 = gauss_ell(mean[k], cov[k], dim = [0,1], \
 						npoints = num_data, level =level)
 					ax1[i, j].plot(e1, e2, 'k', linewidth=linewidth)
 					#ax2[i, j].plot(e1, e2, 'k', linewidth=linewidth)
+
+	#DP-EM version.
+
+	path_file=os.path.join(os.getcwd(),'dpem_results/')
+
+	dpem_mu1=np.load(os.path.join(path_file, 'dpme_mu_eps=1_delta=1e-5_lap=0_comp=4.npy'))
+	dpem_mu=dpem_mu1.T
+	dpem_sigma=np.load(os.path.join(path_file,'dpme_sigma_eps=1_delta=1e-5_lap=0_comp=4.npy'))
+	
+
+	
+	y_pred_dpem, logZ_pred_dpem =compute_dpem_pred(X_test, m_samp, dpem_mu, dpem_sigma, w)
+	#print('This is y_pred_dpem: ', y_pred_dpem)
+
+	if show:
+		i = 3
+		j = 0
+		for n in range(X_test.shape[0]):
+			#print("This is y_pred[n]: ", y_pred[n])
+			#print("This is color y_pred: ", color[y_pred[n]])
+			ax1[i, j].plot(X_test[n, dim[0]], X_test[n, dim[1]], \
+				color[y_pred_dpem[n]], alpha=alpha)
+			ax1[i, j].set_title('DP-EM eps=1.0')
+			ax1[i, j].axis('off')
+
+		bvn = BVN()
+		cov = []; mean = []
+		for k in range(num_group):
+			if clutter_train_dp.full_cov is True:
+				cov.append(dpem_sigma[k][np.ix_(dim, dim)])
+				cov[-1] = np.linalg.inv(cov[-1])
+				mean.append(dpem_mu[k][dim])
+				mean[-1] = np.dot(cov[-1], mean[-1])
+			else:
+				cov.append(dpem_sigma[k][dim])
+				mean.append(dpem_mu[k][dim])
+				#mean[-1] = mean[-1] / cov[-1]
+				#cov[-1] = np.eye(2) / cov[-1]
+
+		bvn.covars = cov
+		bvn.mean = np.array(mean)
+		make_ellipses(bvn, ax1[i, j], level=level)
+
+#		for k in range(num_group):
+#			e1, e2 = gauss_ell(mean[k], cov[k], dim = [0,1], \
+#				npoints = num_data, level =level)
+#			ax1[i, j].plot(e1, e2, 'k', linewidth=linewidth)
+
+	dpem_mu5=np.load(os.path.join(path_file,'dpme_mu_eps=5_delta=1e-5_lap=0_comp=4.npy'))
+	dpem_mu5=dpem_mu5.T
+	dpem_sigma5=np.load(os.path.join(path_file,'dpme_sigma_eps=5_delta=1e-5_lap=0_comp=4.npy'))
+
+
+	y_pred_dpem5, logZ_pred_dpem5 =compute_dpem_pred(X_test, m_samp, dpem_mu5, dpem_sigma5, w)
+	#print('This is y_pred_dpem: ', y_pred_dpem)
+
+	if show:
+		i = 3
+		j = 1
+		for n in range(X_test.shape[0]):
+			#print("This is y_pred[n]: ", y_pred[n])
+			#print("This is color y_pred: ", color[y_pred[n]])
+			ax1[i, j].plot(X_test[n, dim[0]], X_test[n, dim[1]], \
+				color[y_pred_dpem5[n]], alpha=alpha)
+			ax1[i, j].set_title('DP-EM eps=5.0')
+			ax1[i, j].axis('off')
+
+		bvn = BVN()
+		cov = []; mean = []
+		for k in range(num_group):
+			if clutter_train_dp.full_cov is True:
+				cov.append(dpem_sigma5[k][np.ix_(dim, dim)])
+				cov[-1] = np.linalg.inv(cov[-1])
+				mean.append(dpem_mu5[k][dim])
+				mean[-1] = np.dot(cov[-1], mean[-1])
+			else:
+				cov.append(dpem_sigma5[k][dim])
+				mean.append(dpem_mu5[k][dim])
+				#mean[-1] = mean[-1] / cov[-1]
+				#cov[-1] = np.eye(2) / cov[-1]
+
+	
+		bvn.covars = cov
+		bvn.mean = np.array(mean)
+		make_ellipses(bvn, ax1[i, j], level=level)
+
+#		for k in range(num_group):
+#			e1, e2 = gauss_ell(mean[k], cov[k], dim = [0,1], \
+#				npoints = num_data, level =level)
+#			ax1[i, j].plot(e1, e2, 'k', linewidth=linewidth)\
+
+	dpem_mu50=np.load(os.path.join(path_file,'dpem_mu_eps=50_delta1e-5_lap=0_comp=4.npy'))
+	dpem_mu50=dpem_mu50.T
+	dpem_sigma50=np.load(os.path.join(path_file,'dpem_sigma_eps=50_delta1e-5_lap=0_comp=4.npy'))
+
+	y_pred_dpem50, logZ_pred_dpem50 =compute_dpem_pred(X_test, m_samp, dpem_mu50, dpem_sigma50, w)
+	#print('This is y_pred_dpem: ', y_pred_dpem)
+
+	if show:
+		i = 3
+		j = 2
+		for n in range(X_test.shape[0]):
+			#print("This is y_pred[n]: ", y_pred[n])
+			#print("This is color y_pred: ", color[y_pred[n]])
+			ax1[i, j].plot(X_test[n, dim[0]], X_test[n, dim[1]], \
+				color[y_pred_dpem50[n]], alpha=alpha)
+			ax1[i, j].set_title('DP-EM eps=50.0')
+			ax1[i, j].axis('off')
+
+		bvn = BVN()
+		cov = []; mean = []
+		for k in range(num_group):
+			if clutter_train_dp.full_cov is True:
+				cov.append(dpem_sigma50[k][np.ix_(dim, dim)])
+				cov[-1] = np.linalg.inv(cov[-1])
+				mean.append(dpem_mu50[k][dim])
+				mean[-1] = np.dot(cov[-1], mean[-1])
+			else:
+				cov.append(dpem_sigma50[k][dim])
+				mean.append(dpem_mu50[k][dim])
+				#mean[-1] = mean[-1] / cov[-1]
+				#cov[-1] = np.eye(2) / cov[-1]
+
+		bvn.covars = cov
+		bvn.mean = np.array(mean)
+#		make_ellipses(bvn, ax1[i, j], level=level)
+
+#		for k in range(num_group):
+#			e1, e2 = gauss_ell(mean[k], cov[k], dim = [0,1], \
+#				npoints = num_data, level =level)
+#			ax1[i, j].plot(e1, e2, 'k', linewidth=linewidth)\
+
+
+
+
+#	ax1[3, 2].axis('off')	#Eliminate last figure axis.
+#	ax1[3,2].set_title('')
+
 
 	fig1.tight_layout()
 	#Saving image results.
@@ -289,15 +515,10 @@ def main():
 		prior_precision = np.tile(prior_precision, (ar.num_group, 1, 1))
 
 	learning_rate= float(ar.gamma) / ar.num_data
-    
-	#fnorm_mean=[]
-	#fnorm_cov=[]
-	#fnorm_mean_dp=[]
-	#fnorm_cov_dp=[]
 
 	c=np.array(ar.c)
 	step = np.array([ar.num_iter])
-	dim=[[0,1], [0,2], [0,3], [1,2], [1,3], [2,3]]
+	dim=[[0,1]] # you can also plot [0,2], [0,3], [1,2], [1,3], [2,3]
 	
 	print('settings:')
 	print('N_train_data = %d, dim = %d, N_clusters = %d, full Cov matrix = %s,' \
