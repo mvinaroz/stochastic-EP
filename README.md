@@ -24,8 +24,10 @@ Contains the code for computing the DP-SEP experiments for MoG clustering.
 - For plotting Figure 1 run the following command: `python plot_cluster.py --is-private --num-data 1000 --num-iter 100 --c 1 --gamma 1 --delta 1e-5`
 - For obtaining Table 1 errors run:
     - SEP: `python demo_dpsep.py --num-data 1000 --dimension 4 --num_group 4 --num-iter 100 --gamma 1`
+    - clipped SEP: `python demo_dpsep.py --num-data 1000 --dimension 4 --num_group 4 --num-iter 100 --gamma 1 --clip --c 1` for different c values.
     - DP-SEP: `python demo_dpsep.py --num-data 1000 --dimension 4 --num_group 4 --num-iter 100 --gamma 1 --clip --is-private --epsilon 1 --delta 1e-5` 
       for different epsilon values.
+    - DP-EM: `python dpem_fnorm.py --epsilon 1` for different epsilon values.
 
  
 ### pbp_code
@@ -36,3 +38,4 @@ Contains pbp experiments for regression datasets using EP, SEP, clipped SEP and 
     - SEP: `python pbp_regression_sep.py --seed 1 --data-name naval --n-hidden 50 --epochs 40`
     - clipping SEP: `python pbp_regression_dpsep.py --seed 1 --data-name naval --n-hidden 50 --epochs 40 --clip --c 1`
     - DP-SEP: `python pbp_regression_dpsep.py --seed 1 --data-name naval --n-hidden 50 --epochs 40 --clip --c 1 --is-private --epsilon 1 --delta 1e-5`
+
