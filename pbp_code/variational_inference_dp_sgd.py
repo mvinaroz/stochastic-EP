@@ -1,4 +1,3 @@
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -60,7 +59,26 @@ class NN_Model(nn.Module):
 
         return pred_samps, KL_term, m_pri, v_pri
 
-    
+def loss_func_per_sample(pred_samps, KL_term, y, gam, data_dim, m_pri, v_pri):
+
+    # size(pred_samps) = num data samples by d_h by num MC samples
+    n = pred_samps.shape[0]
+
+    # m_pri times pred_samps
+    m_pri_pred_samps = torch.einsum('j, njk -> nk', m_pri, pred_samps) # N by MC_samps
+    y_m_pri_pred_samps = torch.einsum('n, nk -> nk', y, m_pri_pred_samps) # N by MC_samps
+    trm1 = y**2
+    trm2=torch.mean(2*y_m_pri_pred_samps, 1)
+    trm3=torch.mean(torch.einsum('njk,j -> nk', pred_samps**2, v_pri), 1)
+    trm4=torch.mean(m_pri_pred_samps**2, 1)
+    trm5=0.5*data_dim*torch.log(2*torch.pi/gam)
+    out1 = gam*0.5*(trm1 - trm2 + trm3 + trm4) + trm5
+    out = out1 + KL_term
+
+    print("This is out: ", out.shape)
+
+    return out
+
 
 
 def loss_func(pred_samps, KL_term, y, gam, data_dim, m_pri, v_pri):
@@ -96,6 +114,9 @@ def get_args():
     parser.add_argument('--epochs', type=int, default=1000)
     parser.add_argument("--normalize-data", action='store_true', default=True)
     parser.add_argument('--clf-batch-size', type=int, default=200)
+
+    parser.add_argument('--is-private', action='store_true', default=True, help='produces a DP-VI')
+    parser.add_argument('--dp-clip', type=float, default=0.01, help='the clipping norm for the gradients')
 
     ar = parser.parse_args()
 
@@ -163,8 +184,27 @@ def main():
     if ar.data_name == 'wine':
         a = 550.883042
         b = 288.7679997
-        gam = b/a # setting gamma to the posterior mean
-        lamb = 0.1 # this is questionable.
+    elif ar.data_name == 'naval':
+        a=4780.383185
+        b=144.3312336
+    elif ar.data_name =='robot':
+        a=3271.898334
+        b=331.122069
+    elif ar.data_name =='power':
+        a=4084.001869
+        b=236.8769553 
+    elif ar.data_name =='protein':
+        a=20080.58288
+        b=11029.92738
+    elif ar.data_name == 'year':
+        a=224608.67015
+        b=136304.09595
+    else:
+        a = 6.0
+        b = 6.0
+
+    gam = b/a # setting gamma to the posterior mean
+    lamb = 0.1 # this is questionable.
 
 
     model = NN_Model(len_m, len_m_pri, len_v, num_samps, ms_vs, device, lamb, d)
@@ -185,11 +225,20 @@ def main():
             optimizer.zero_grad()
 
             pred_samps, KL_term, m_pri, v_pri = model(torch.Tensor(inputs)) # some portion of X_train if mini-batch learning is happening
+            
+            if ar.is_private:
+                loss=loss_func_per_sample(pred_samps, KL_term, torch.Tensor(labels), torch.tensor(gam), d, m_pri, v_pri)
+                print("Loss before backward: ", loss)
+                for i in range(loss.size()[0]):
+                    loss[i].backward(retain_graph=True)
+                    torch.nn.utils.clip_grad_norm(model.parameters(), ar.dp_clip)
 
-            loss = loss_func(pred_samps, KL_term, torch.Tensor(labels), torch.tensor(gam), d, m_pri, v_pri)
-                           # pred_samps, KL_term, y, gam, data_dim, m_pri, v_pri
-            loss.backward()
-            optimizer.step()
+            else:
+                loss = loss_func(pred_samps, KL_term, torch.Tensor(labels), torch.tensor(gam), d, m_pri, v_pri)
+                            # pred_samps, KL_term, y, gam, data_dim, m_pri, v_pri
+            
+                loss.backward()
+                optimizer.step()
 
         print('Epoch {}: loss : {}'.format(epoch, loss))
 
@@ -210,10 +259,10 @@ def main():
 
         test_ll = np.mean(-0.5 * np.log(2 * math.pi * (v_prd + v_noise)) - \
                           0.5 * (y_test - m_prd) ** 2 / (v_prd + v_noise))
-        print("test_ll: ", test_ll)
+        #print("test_ll: ", test_ll)
 
         rmse = np.sqrt(np.mean((y_test - m_prd) ** 2))
-        print("rmse: ", rmse)
+        #print("rmse: ", rmse)
 
 
 
