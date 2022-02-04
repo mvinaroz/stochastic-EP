@@ -60,7 +60,7 @@ class NN_Model(nn.Module):
         return pred_samps, KL_term, m_pri, v_pri
 
 def loss_func_per_sample(pred_samps, KL_term, y, gam, data_dim, m_pri, v_pri):
-
+    """Compute the loss sample wise"""
     # size(pred_samps) = num data samples by d_h by num MC samples
     n = pred_samps.shape[0]
 
@@ -68,7 +68,7 @@ def loss_func_per_sample(pred_samps, KL_term, y, gam, data_dim, m_pri, v_pri):
     m_pri_pred_samps = torch.einsum('j, njk -> nk', m_pri, pred_samps) # N by MC_samps
     y_m_pri_pred_samps = torch.einsum('n, nk -> nk', y, m_pri_pred_samps) # N by MC_samps
     trm1 = y**2
-    trm2=torch.mean(2*y_m_pri_pred_samps, 1)
+    trm2=torch.mean(2*y_m_pri_pred_samps, 1) #We take mean over MC_samples
     trm3=torch.mean(torch.einsum('njk,j -> nk', pred_samps**2, v_pri), 1)
     trm4=torch.mean(m_pri_pred_samps**2, 1)
     trm5=0.5*data_dim*torch.log(2*torch.pi/gam)
@@ -230,12 +230,12 @@ def main():
             pred_samps, KL_term, m_pri, v_pri = model(torch.Tensor(inputs)) # some portion of X_train if mini-batch learning is happening
             
             if ar.is_private:
-                loss=loss_func_per_sample(pred_samps, KL_term, torch.Tensor(labels), torch.tensor(gam), d, m_pri, v_pri)
+                loss=loss_func_per_sample(pred_samps, KL_term, torch.Tensor(labels), torch.tensor(gam), d, m_pri, v_pri) #This loss has size minibatc_size
                 #print("Loss before backward: ", loss)
-                save_clipped_grad=torch.zeros(ar.clf_batch_size, ms_vs.shape[0]) #tensor that will contain the clipped gradients with size batch_size per ms_vs.shape[0]
+                save_clipped_grad=torch.zeros(ar.clf_batch_size, ms_vs.shape[0]) #tensor that will contain the clipped gradients where size is batch_size per parameters size
                 #print('Thi is save_clipped_grad.shape: ', save_clipped_grad.shape)
                 for i in range(loss.size()[0]):
-                    loss[i].backward(retain_graph=True)
+                    loss[i].backward(retain_graph=True) #Compute per sample gradient.
                     """Check the gradient norm before clipping"""
                     #total_norm = 0
                     #for p in model.parameters():
@@ -244,7 +244,7 @@ def main():
                     #    total_norm += param_norm.item() ** 2
                     #    total_norm = total_norm ** 0.5
                     #print("This is the total norm of the parameter gradients: ", total_norm)
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), ar.dp_clip)
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), ar.dp_clip) #Clip per sample gradient.
                     """Check the gradient norm after clipping"""
                     #total_norm2 = 0
                     #for p in model.parameters():
@@ -257,7 +257,7 @@ def main():
                     for p in model.parameters():
                         save_clipped_grad[i, :]= p.grad
                 #print("This are the clipped gradients saved: ", save_clipped_grad)
-                sum_clipped_grad=torch.sum(save_clipped_grad, dim=0) #This has ms_vs shape
+                sum_clipped_grad=torch.sum(save_clipped_grad, dim=0) #Sum over all minibatch gradients (ms_vs size).
                 #print("This is sum_clipped_grad shape: ", sum_clipped_grad.shape)
 
                 """Now we have to add noise"""
@@ -265,13 +265,12 @@ def main():
                 perturbed_grad = (sum_clipped_grad + torch.randn_like(sum_clipped_grad, device=device) * noise_sdev) / loss.size()[0] # ...and applied
 
 
-
                 """Version 1. Update the model parameters as in SGD and the perturbed gradients"""
 #                for p in model.parameters():
 #                    p = p - ar.lr*perturbed_grad
 #                    p.grad=perturbed_grad # now we set the parameter gradient to what we just computed
 
-                """Version 2. Update the model perturbed gradients and perform SGD by optimizer"""
+                """Version 2. Update the model with perturbed gradients and perform SGD by optimizer"""
                 for p in model.parameters():
                     p.grad=perturbed_grad
                 optimizer.step()
