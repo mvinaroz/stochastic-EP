@@ -75,7 +75,7 @@ def loss_func_per_sample(pred_samps, KL_term, y, gam, data_dim, m_pri, v_pri):
     out1 = gam*0.5*(trm1 - trm2 + trm3 + trm4) + trm5
     out = out1 + KL_term
 
-    print("This is out: ", out.shape)
+    #print("This is out: ", out.shape)
 
     return out
 
@@ -114,9 +114,11 @@ def get_args():
     parser.add_argument('--epochs', type=int, default=1000)
     parser.add_argument("--normalize-data", action='store_true', default=True)
     parser.add_argument('--clf-batch-size', type=int, default=200)
+    parser.add_argument('--lr', type=float, default=0.01,  help='learning rate' )
 
     parser.add_argument('--is-private', action='store_true', default=True, help='produces a DP-VI')
-    parser.add_argument('--dp-clip', type=float, default=0.01, help='the clipping norm for the gradients')
+    parser.add_argument('--dp-clip', type=float, default=0.0001, help='the clipping norm for the gradients')
+    parser.add_argument('--dp-sigma', type=float, default=1., help='sigma for dp-vi')
 
     ar = parser.parse_args()
 
@@ -174,6 +176,7 @@ def main():
     init_ms = 0.01*torch.randn(len_m + len_m_pri) # initial values for all means
     init_vs = 0.01*torch.randn(len_v + len_v_pri) # initial values for all variances
     ms_vs = torch.cat((init_ms, init_vs), 0)
+    
 
     # these hyperparameters gamma and lambda are taken from PBP results
     # gam = 0.1 # gamma is the noise precision
@@ -208,7 +211,7 @@ def main():
 
 
     model = NN_Model(len_m, len_m_pri, len_v, num_samps, ms_vs, device, lamb, d)
-    optimizer = optim.SGD(model.parameters(), lr=0.0001)
+    optimizer = optim.SGD(model.parameters(), lr=ar.lr)
     # optimizer = optim.Adam(model.parameters(), lr=0.00001)
     v_noise = b / a * std_y_train ** 2
 
@@ -228,19 +231,60 @@ def main():
             
             if ar.is_private:
                 loss=loss_func_per_sample(pred_samps, KL_term, torch.Tensor(labels), torch.tensor(gam), d, m_pri, v_pri)
-                print("Loss before backward: ", loss)
+                #print("Loss before backward: ", loss)
+                save_clipped_grad=torch.zeros(ar.clf_batch_size, ms_vs.shape[0]) #tensor that will contain the clipped gradients with size batch_size per ms_vs.shape[0]
+                #print('Thi is save_clipped_grad.shape: ', save_clipped_grad.shape)
                 for i in range(loss.size()[0]):
                     loss[i].backward(retain_graph=True)
-                    torch.nn.utils.clip_grad_norm(model.parameters(), ar.dp_clip)
+                    """Check the gradient norm before clipping"""
+                    #total_norm = 0
+                    #for p in model.parameters():
+                    #    print(p.grad)
+                    #    param_norm = p.grad.detach().data.norm(2)
+                    #    total_norm += param_norm.item() ** 2
+                    #    total_norm = total_norm ** 0.5
+                    #print("This is the total norm of the parameter gradients: ", total_norm)
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), ar.dp_clip)
+                    """Check the gradient norm after clipping"""
+                    #total_norm2 = 0
+                    #for p in model.parameters():
+                    #    print(p.grad)
+                    #    param_norm2 = p.grad.detach().data.norm(2)
+                    #    total_norm2 += param_norm2.item() ** 2
+                    #    total_norm2 = total_norm2 ** 0.5
+                    #print("This is the total norm of the parameter gradients after clipping: ", total_norm2)
+                    """Save the clipped grad into a tensor so after we can add noise and do the mean"""
+                    for p in model.parameters():
+                        save_clipped_grad[i, :]= p.grad
+                #print("This are the clipped gradients saved: ", save_clipped_grad)
+                sum_clipped_grad=torch.sum(save_clipped_grad, dim=0) #This has ms_vs shape
+                #print("This is sum_clipped_grad shape: ", sum_clipped_grad.shape)
 
+                """Now we have to add noise"""
+                noise_sdev = ar.dp_sigma * 2 * ar.dp_clip  # gaussian noise standard dev is computed (sensitivity is 2*clip)...
+                perturbed_grad = (sum_clipped_grad + torch.randn_like(sum_clipped_grad, device=device) * noise_sdev) / loss.size()[0] # ...and applied
+
+
+
+                """Version 1. Update the model parameters as in SGD and the perturbed gradients"""
+#                for p in model.parameters():
+#                    p = p - ar.lr*perturbed_grad
+#                    p.grad=perturbed_grad # now we set the parameter gradient to what we just computed
+
+                """Version 2. Update the model perturbed gradients and perform SGD by optimizer"""
+                for p in model.parameters():
+                    p.grad=perturbed_grad
+                optimizer.step()
+
+                
             else:
                 loss = loss_func(pred_samps, KL_term, torch.Tensor(labels), torch.tensor(gam), d, m_pri, v_pri)
                             # pred_samps, KL_term, y, gam, data_dim, m_pri, v_pri
             
-                loss.backward()
+                print(loss.backward())
                 optimizer.step()
 
-        print('Epoch {}: loss : {}'.format(epoch, loss))
+                print('Epoch {}: loss : {}'.format(epoch, loss))
 
 
         #### testing in every epoch ####
@@ -259,10 +303,10 @@ def main():
 
         test_ll = np.mean(-0.5 * np.log(2 * math.pi * (v_prd + v_noise)) - \
                           0.5 * (y_test - m_prd) ** 2 / (v_prd + v_noise))
-        #print("test_ll: ", test_ll)
+        print("test_ll: ", test_ll)
 
         rmse = np.sqrt(np.mean((y_test - m_prd) ** 2))
-        #print("rmse: ", rmse)
+        print("rmse: ", rmse)
 
 
 
