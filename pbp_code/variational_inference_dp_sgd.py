@@ -10,6 +10,7 @@ import numpy as np
 import torch.optim as optim
 # from sklearn.metrics import roc_auc_score
 import math
+from autodp import rdp_acct, rdp_bank
 
 class NN_Model(nn.Module):
 
@@ -100,6 +101,34 @@ def loss_func(pred_samps, KL_term, y, gam, data_dim, m_pri, v_pri):
 
     return out
 
+def privacy_param_func(sigma, delta, n_epochs, batch_size, n_data):
+    """ input arguments """
+    
+    k = n_epochs  # k is the number of steps during the entire training
+    prob = batch_size / n_data  # prob is the subsampling probability
+
+    """ end of input arguments """
+
+    """ now use autodp to calculate the cumulative privacy loss """
+    # declare the moment accountants
+    acct = rdp_acct.anaRDPacct()
+
+    # define the functional form of uppder bound of RDP
+    func = lambda x: rdp_bank.RDP_gaussian({'sigma': sigma}, x)
+
+    eps_seq = []
+    print_every_n = 100
+    for i in range(1, k + 1):
+        acct.compose_subsampled_mechanism(func, prob)
+        eps_seq.append(acct.get_eps(delta))
+        if i % print_every_n == 0 or i == k:
+            print("[", i, "]Privacy loss is", (eps_seq[-1]))
+
+    print("The final epsilon delta values after the training is over: ", (acct.get_eps(delta), delta))
+
+    final_epsilon = acct.get_eps(delta)
+    return final_epsilon
+
 
 def get_args():
     parser = argparse.ArgumentParser()
@@ -118,7 +147,7 @@ def get_args():
 
     parser.add_argument('--is-private', action='store_true', default=True, help='produces a DP-VI')
     parser.add_argument('--dp-clip', type=float, default=0.0001, help='the clipping norm for the gradients')
-    parser.add_argument('--dp-sigma', type=float, default=1., help='sigma for dp-vi')
+    parser.add_argument('--dp-sigma', type=float, default=50., help='sigma for dp-vi')
 
     ar = parser.parse_args()
 
@@ -214,6 +243,12 @@ def main():
     optimizer = optim.SGD(model.parameters(), lr=ar.lr)
     # optimizer = optim.Adam(model.parameters(), lr=0.00001)
     v_noise = b / a * std_y_train ** 2
+
+    #Compute DP budget.
+    delta=1e-5
+    if ar.is_private:
+        final_epsilon=privacy_param_func(ar.dp_sigma , delta, ar.epochs, ar.clf_batch_size, n)
+        #privacy_param_func(sigma, delta, n_epochs, batch_size, n_data):
 
 
     # training routine should start here.
