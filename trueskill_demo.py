@@ -1,6 +1,19 @@
-from re import A
 import numpy as np 
 from scipy.stats import norm
+
+def compute_functions(mean, var):
+
+    value_arg=np.divide(mean, np.sqrt(var))
+
+    pdf_normal=norm.pdf(value_arg)
+    cdf_normal=norm.cdf(value_arg)
+    psi_func=np.divide(pdf_normal, cdf_normal)
+
+    sum_term=value_arg + psi_func
+    lambda_func=np.multiply(psi_func, sum_term)
+
+    return psi_func, lambda_func
+
 
 def trueskillEP(num_players, data, num_iter):
     '''
@@ -11,10 +24,6 @@ def trueskillEP(num_players, data, num_iter):
     num_games=data.shape[0]
 
     pv=0.5 #Prior skill variance (prior mean is always 0)
-
-    #Prior skill variance and mean.
-    psi_var=0.5
-    psi_mean=0.0
 
     #Initialize skill marginals for each player (mean and variance).
     Ms=np.empty(num_players)
@@ -29,45 +38,62 @@ def trueskillEP(num_players, data, num_iter):
     #Initialize matrices of skills to game messags (mean and precision). (THESE ARE THE CAVITY DISTRIBUTIONS q_{-n}(\theta))
     Msg=np.zeros((num_games, 2))
     Psg=np.zeros((num_games, 2))
-    print("Msg before update: ", Msg)
+    #print("Msg before update: ", Msg)
 
     for iter in range(num_iter):
 
-        for i in range(num_games):
+        #Step 1. Compute the posterior over skills.
+        for player in range(num_players):
+            Ps[player]=1/pv + np.sum(Pgs[np.isin(data, player+1)])
+            Ms[player]=np.dot(Pgs[np.isin(data, player+1)], Mgs[np.isin(data, player+1)])/Ps[player]
+            #print(Pgs[np.isin(data, i+1)])
+            #print(Mgs[np.isin(data, i+1)])
 
-            #Step 1. Compute the posterior over skills.
-            for player in range(num_players):
-                Ps[player]=1/pv + np.sum(Pgs[np.isin(data, player+1)])
-                Ms[player]=np.dot(Pgs[np.isin(data, player+1)], Mgs[np.isin(data, player+1)])/Ps[player]
-                #print(Pgs[np.isin(data, i+1)])
-                #print(Mgs[np.isin(data, i+1)])
+        print("This is Ps: ", Ps)
+        print("This is Ms: ", Ms)
+        #Step 2. Compute skill to game messages (i.e cavity distribution with respect to a game and its palyers).
+        data_index=data - 1 #Need to select elements in Ps by index of player in Ps.
+        #print(data_index)
+        D=data_index.reshape(-1)
+
+        Ps_per_game_played=np.take(Ps, D).reshape(data.shape)
+        Ms_per_game_played=np.take(Ms, D).reshape(data.shape)
+
+        Psg=Ps_per_game_played - Pgs
+        #print("Psg: ", Psg)
+        term1_msg=np.multiply(Ps_per_game_played, Ms_per_game_played) - np.multiply(Pgs, Mgs)
+        Msg=np.divide(term1_msg, Psg)
+        print(Msg)
+
+        #Step 3. Compute game to performance messages. 
+        vgt=1+ np.sum(1/Psg, axis=1)
+        mgt=Msg[:,0] - Msg[:, 1] #Player in the first column  always beats the player on the second column.
+
+        #Step 4. Approximate the marginal on performance differences.
+        psi_func, lambda_func=compute_functions(mgt, vgt)
+        Mt=mgt + np.multiply(np.sqrt(vgt), psi_func)
+        Pt=1/np.multiply(vgt, 1-lambda_func)
+
+        #Step 5. Compute performance to game messages.
+        ptg=Pt - 1/vgt
+        mtg_term1=np.multiply(Mt, Pt) - np.multiply(mgt, vgt)
+        mtg=np.divide(mtg_term1, ptg)
+
+
+        #Step 6. Compute gqme to skill messages ( f_{n}(\theta) updates for players in game i)
+        ptg_inv=(1/ptg).reshape(-1,1)
+        ptg_repeat=np.concatenate((ptg_inv, ptg_inv) , axis=1)
+        Psg_reverse=1/np.flip(Psg, axis=1)
+        pgs_denom=1+ptg_repeat+Psg_reverse
         
-            print("this is Ps: ", Ps)
+        Pgs=1/pgs_denom
 
-            game_played=data[i, :] - 1 #index of the i-th data row (game played)
-            #Step 2. Compute skill to game messages (i.e cavity distribution with respect to a game and its palyers).
-            print("The game played: ", game_played)
-            Psg[i, :]=Ps[game_played] - Pgs[i, :]
-            Msg[i, :]=(np.dot(Ps[game_played], Ms[game_played]) - np.dot(Pgs[i], Mgs[i])) / Psg[i,:]
+        mtg_repeat=np.concatenate((mtg.reshape(-1,1), -mtg.reshape(-1,1)) , axis=1)
 
-            #Step 3. Compute game to performance messages. 
-            vgt= 1+ np.sum(1./Psg[i,:])
-            mgt=Msg[i, 0] - Msg[i, 1] #The first player always wins the second one.
+        Mgs= mtg_repeat + np.flip(Msg, axis=1)
 
-            #Step 4. Approximate the marginal on performance differences.
-            funcs_arg=mgt /np.sqrt(vgt)
-            lambda_func=norm.pdf(funcs_arg,loc=0,scale=1)*(norm.pdf(funcs_arg,loc=0,scale=1) + funcs_arg)
-            Mt=mgt + np.sqrt(vgt)*norm.pdf(funcs_arg,loc=0,scale=1)
-            Pt= 1./(vgt*(1 - lambda_func) )
-
-            #Step 5. Compute performance to game messages.
-            ptg=Pt  - 1./vgt
-            mtg= (Mt*Pt - mgt/vgt)/ptg
-
-            #Step 6. Compute gqme to skill messages ( f_{n}(\theta) updates for players in game i)
-            Pgs[i, :]= 1+ ptg + Psg[i,:][::-1] 
-            Mgs[i, 0]= mtg + Msg[i, 1]
-            Mgs[i, 1]=mtg - Msg[i, 0]
+    return Ms, Ps
+    
 
 
 
@@ -110,5 +136,5 @@ for k in range(K.shape[0]):
 
 print(data)
 
-num_iter=1
-trueskillEP(Nplayers, data, num_iter)
+num_iter=5
+Ms, Ps=trueskillEP(Nplayers, data, num_iter)
