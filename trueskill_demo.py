@@ -42,7 +42,7 @@ def trueskillEP(num_players, data, num_iter):
 
     for iter in range(num_iter):
 
-        #Step 1. Compute the posterior over skills.
+        #Step 1. Compute the posterior over skills (initialization).
         for player in range(num_players):
             Ps[player]=1/pv + np.sum(Pgs[np.isin(data, player+1)])
             Ms[player]=np.dot(Pgs[np.isin(data, player+1)], Mgs[np.isin(data, player+1)])/Ps[player]
@@ -59,28 +59,28 @@ def trueskillEP(num_players, data, num_iter):
         Ps_per_game_played=np.take(Ps, D).reshape(data.shape)
         Ms_per_game_played=np.take(Ms, D).reshape(data.shape)
 
-        Psg=Ps_per_game_played - Pgs
+        Psg=Ps_per_game_played - Pgs #Cavity nat param for the variace.
         #print("Psg: ", Psg)
         term1_msg=np.multiply(Ps_per_game_played, Ms_per_game_played) - np.multiply(Pgs, Mgs)
-        Msg=np.divide(term1_msg, Psg)
-        print(Msg)
+        Msg=np.divide(term1_msg, Psg) #Cavity nat param for the mean.
+        #print(Msg)
 
-        #Step 3. Compute game to performance messages. 
+        #Step 3. Compute game to performance messages. (Compute the cavity distrib with respect to the difference performance)
         vgt=1+ np.sum(1/Psg, axis=1)
         mgt=Msg[:,0] - Msg[:, 1] #Player in the first column  always beats the player on the second column.
 
-        #Step 4. Approximate the marginal on performance differences.
+        #Step 4. Approximate the marginal on performance differences. (Compute tilted distribution with respect to the difference performance params.)
         psi_func, lambda_func=compute_functions(mgt, vgt)
         Mt=mgt + np.multiply(np.sqrt(vgt), psi_func)
         Pt=1/np.multiply(vgt, 1-lambda_func)
 
-        #Step 5. Compute performance to game messages.
+        #Step 5. Compute performance to game messages. (Compute f_n update wih respect to the difference params.)
         ptg=Pt - 1/vgt
         mtg_term1=np.multiply(Mt, Pt) - np.multiply(mgt, vgt)
         mtg=np.divide(mtg_term1, ptg)
 
 
-        #Step 6. Compute gqme to skill messages ( f_{n}(\theta) updates for players in game i)
+        #Step 6. Compute gqme to skill messages ( f_{n}(\theta) updates for skill players in game g)
         ptg_inv=(1/ptg).reshape(-1,1)
         ptg_repeat=np.concatenate((ptg_inv, ptg_inv) , axis=1)
         Psg_reverse=1/np.flip(Psg, axis=1)
@@ -88,53 +88,69 @@ def trueskillEP(num_players, data, num_iter):
         
         Pgs=1/pgs_denom
 
-        mtg_repeat=np.concatenate((mtg.reshape(-1,1), -mtg.reshape(-1,1)) , axis=1)
+        mtg_repeat=np.concatenate((mtg.reshape(-1,1), mtg.reshape(-1,1)) , axis=1)
+        #print("This is Msg before reversing columns: ", Msg)
+        Msg_reverse=np.flip(Msg, axis=1)
+        #print("This is Msg afer reversing columns: ", Msg_reverse)
+        Msg_reverse[:, 1]=-Msg_reverse[:,1]
+        #print("This is Msg after reversing columns and -1: ", Msg_reverse)
 
-        Mgs= mtg_repeat + np.flip(Msg, axis=1)
+        Mgs= mtg_repeat + Msg_reverse
 
     return Ms, Ps
     
 
 
+def main():
 
+    # Let us assume the following partial order on players
+    # where higher up is better
+    #     1
+    #    /  \
+    #    2   3
+    #     \/
+    #     4
+    #    /  \
+    #   5    6
+    # We will sample data from this graph, where we let each player
+    # beat its children K times
 
-# Let us assume the following partial order on players
-# where higher up is better
-#     1
-#    /  \
-#    2   3
-#     \/
-#     4
-#    /  \
-#   5    6
-# We will sample data from this graph, where we let each player
-# beat its children K times
+    #G=np.zeros((Nplayers, Nplayers))
+    #G[0, 1]=1
+    #G[0, 2]=1
+    #G[1, 3]=1
+    #G[2, 3]=1
+    #G[3, 4]=1
+    #G[3, 5]=1
 
-Nplayers=6
-G=np.zeros((Nplayers, Nplayers))
-G[0, 1]=1
-G[0, 2]=1
-G[1, 3]=1
-G[2, 3]=1
-G[3, 4]=1
-G[3, 5]=1
+    #print(G)
 
-#print(G)
+    Nplayers=6
+    
+    np.random.seed(0)
+    K=np.random.randint(1, high=10, size=6, dtype=int) #Generate the number of games between players 1-2, 1-3, 2-4, 3-4, 4-5, 4-6
 
-K=np.random.randint(1, high=5, size=6, dtype=int) #Generate the number of games between players 1-2, 1-3, 2-4, 3-4, 4-5, 4-6
-#print(K)
-#data=np.zeros((np.sum(K), 2))
-list_players=[[1,2], [1, 3], [2,4], [3,4], [4,5], [4, 6]]
+    #K_sorted=np.sort(K)[::-1]
+    #print(K_sorted)
 
-#Generate data where column 1 is the winner and column 2 is the loser of each game.
-for k in range(K.shape[0]):
-    data12=np.full((K[k], 2), list_players[k])
-    if k==0:
-        data=data12
-    else:
-        data=np.concatenate((data, data12), axis=0)
+    #data=np.zeros((np.sum(K), 2))
+    list_players=[[1,2], [1, 3], [2,4], [3,4], [4,5], [4, 6]]
 
-print(data)
+    #Generate data where column 1 is the winner and column 2 is the loser of each game.
+    for k in range(K.shape[0]):
+        data12=np.full((K[k], 2), list_players[k])
+        if k==0:
+            data=data12
+        else:
+            data=np.concatenate((data, data12), axis=0)
 
-num_iter=5
-Ms, Ps=trueskillEP(Nplayers, data, num_iter)
+    print(data)
+
+    num_iter=5
+    Ms, Ps=trueskillEP(Nplayers, data, num_iter)
+    print("These are posterior means for skills: ", Ms)
+    print("These are posterior vars for skills: ", Ps)
+
+if __name__ == '__main__':
+    main()
+
