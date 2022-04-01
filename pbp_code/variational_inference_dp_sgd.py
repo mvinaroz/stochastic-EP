@@ -48,53 +48,37 @@ class NN_Model(nn.Module):
 
         x_W_0 = torch.einsum('nd,jdk -> njk', x, W_0)
         x_W_0_plus_bias = torch.einsum('njk,jk -> njk', x_W_0, bias)
-        pred_samps =  self.relu(x_W_0_plus_bias) # num data samples by d_h by num MC samples (N  time d_h times L)
+        z_0_n =  self.relu(x_W_0_plus_bias) # num data samples by d_h by num MC samples (N  time d_h times L)
 
         ### KL term
-        trm1 = 0.5*(self.lamb*torch.sum(v) + self.lamb*torch.sum(m**2) - self.data_dim - torch.sum(torch.log(self.lamb*v)))
-        trm2 = 0.5*(self.lamb*torch.sum(v_pri) + self.lamb*torch.sum(m_pri**2) - d_h - torch.sum(torch.log(self.lamb*v_pri)))
+        trm1 = 0.5*(self.lamb*torch.sum(v) + self.lamb*torch.sum(m**2) - (self.data_dim + 1) - (self.data_dim + 1)*np.log(self.lamb) - torch.sum(torch.log(v)))
+        trm2 = 0.5*(self.lamb*torch.sum(v_pri) + self.lamb*torch.sum(m_pri**2) - (d_h +1) - (d_h+1)*np.log(self.lamb) -  torch.sum(torch.log(v_pri)))
         KL_term = trm1 + trm2
 
         # print("this is KL_term: ", KL_term)
         # print("this is pred_samps: ", pred_samps)
 
-        return pred_samps, KL_term, m_pri, v_pri
+        return z_0_n, KL_term, m_pri, v_pri
 
-def loss_func_per_sample(pred_samps, KL_term, y, gam, data_dim, m_pri, v_pri):
-    """Compute the loss sample wise"""
-    # size(pred_samps) = num data samples by d_h by num MC samples
+
+def loss_func(pred_samps, KL_term, y, gam, m_pri, v_pri):
+
+    # size(z_0_n) = num data samples by d_h by num MC samples
     n = pred_samps.shape[0]
 
-    # m_pri times pred_samps
-    m_pri_pred_samps = torch.einsum('j, njk -> nk', m_pri, pred_samps) # N by MC_samps
-    y_m_pri_pred_samps = torch.einsum('n, nk -> nk', y, m_pri_pred_samps) # N by MC_samps
-    trm1 = y**2
-    trm2=torch.mean(2*y_m_pri_pred_samps, 1) #We take mean over MC_samples
-    trm3=torch.mean(torch.einsum('njk,j -> nk', pred_samps**2, v_pri), 1)
-    trm4=torch.mean(m_pri_pred_samps**2, 1)
-    trm5=0.5*data_dim*torch.log(2*torch.pi/gam)
-    out1 = gam*0.5*(trm1 - trm2 + trm3 + trm4) + trm5
-    out = out1 + KL_term
+    #Add +1 to z_0_n d_h dim
+    z_0_n = F.pad(input=pred_samps, pad=(0, 0, 0, 1), mode='constant', value=1)
+    #print("This is z_0_n shape: ", z_0_n.shape)
+    #print("This is z_0_n_bias shape: ", z_0_n_bias)
 
-    #print("This is out: ", out.shape)
-
-    return out
-
-
-
-def loss_func(pred_samps, KL_term, y, gam, data_dim, m_pri, v_pri):
-
-    # size(pred_samps) = num data samples by d_h by num MC samples
-    n = pred_samps.shape[0]
-
-    # m_pri times pred_samps
-    m_pri_pred_samps = torch.einsum('j, njk -> nk', m_pri, pred_samps) # N by MC_samps
-    y_m_pri_pred_samps = torch.einsum('n, nk -> nk', y, m_pri_pred_samps) # N by MC_samps
+    # m_pri times z_0_n
+    m_pri_z_0_n = torch.einsum('j, njk -> nk', m_pri, z_0_n) # N by MC_samps
+    y_m_pri_z_0_n = torch.einsum('n, nk -> nk', y, m_pri_z_0_n) # N by MC_samps
     trm1 = torch.sum(y**2)
-    trm2 = torch.mean(torch.sum(2*y_m_pri_pred_samps, 0))
-    trm3 = torch.mean(torch.sum(torch.einsum('njk,j -> nk', pred_samps**2, v_pri),0))
-    trm4 = torch.mean(torch.sum(m_pri_pred_samps**2,0))
-    trm5 = 0.5*n*data_dim*torch.log(2*torch.pi/gam)
+    trm2 = torch.mean(torch.sum(2*y_m_pri_z_0_n, 0))
+    trm3 = torch.mean(torch.sum(torch.einsum('njk,j -> nk', z_0_n**2, v_pri),0))
+    trm4 = torch.mean(torch.sum(m_pri_z_0_n**2,0))
+    trm5 = 0.5*n*torch.log(2*torch.pi/gam)
     out1 = gam*0.5*(trm1 - trm2 + trm3 + trm4) + trm5
     out = out1 + KL_term
     # print("This is out: ", out)
@@ -134,18 +118,21 @@ def get_args():
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--seed', type=int, default=1, help='sets random seed')
-    parser.add_argument('--data-name', type=str, default='wine', \
+    parser.add_argument('--data-name', type=str, default='naval', \
                         help='choose the data name among naval, robot, power, wine, protein')
 
     # OPTIMIZATION
     parser.add_argument('--n-hidden', type=int, default=50, help='number of hidden units in the layer')
-    parser.add_argument('--batch-size', '-bs', type=int, default=1000, help='batch size during training')
-    parser.add_argument('--epochs', type=int, default=1000)
+    parser.add_argument('--batch-size', '-bs', type=int, default=200, help='batch size during training')
+    parser.add_argument('--epochs', type=int, default=200)
     parser.add_argument("--normalize-data", action='store_true', default=True)
     parser.add_argument('--clf-batch-size', type=int, default=200)
-    parser.add_argument('--lr', type=float, default=0.01,  help='learning rate' )
+    parser.add_argument('--lr', type=float, default=0.001,  help='learning rate' )
+    parser.add_argument('--lamb', type=float, default=10,  help='precision on weights' )
+    parser.add_argument('--gam', type=float, default=0.1,  help='precision on noise' )
+    parser.add_argument('--mc-samps', type=int, default=500,  help='number of mc samples to generate' )
 
-    parser.add_argument('--is-private', action='store_true', default=True, help='produces a DP-VI')
+    parser.add_argument('--is-private', action='store_true', default=False, help='produces a DP-VI')
     parser.add_argument('--dp-clip', type=float, default=0.0001, help='the clipping norm for the gradients')
     parser.add_argument('--dp-sigma', type=float, default=50., help='sigma for dp-vi')
 
@@ -195,13 +182,13 @@ def main():
     n, d = X_train.shape  # input dimension of data, depending on the dataset
     num_iter = np.int(n / batch_size)
     # print("This is num datapoints: ", n)
-    d_h = 50  # number of hidden units in the hidden layer
+    d_h = 50 # number of hidden units in the hidden layer 
     # define the length of variational parameters
     len_m = d_h * (d + 1)  # length of mean parameters for W_0, where the size of W_0 is d_h by (d+1)
     #print("This is len_m: ", len_m)
     len_v = d_h * (d + 1)  # length of variance parameters for W_0
-    len_m_pri = d_h  # length of mean parameters for w_1, where the size of w_1 is d_h
-    len_v_pri = d_h  # length of variance parameters for w_1
+    len_m_pri = d_h + 1 # length of mean parameters for w_1, where the size of w_1 is d_h
+    len_v_pri = d_h + 1# length of variance parameters for w_1
     init_ms = 0.01*torch.randn(len_m + len_m_pri) # initial values for all means
     init_vs = 0.01*torch.randn(len_v + len_v_pri) # initial values for all variances
     ms_vs = torch.cat((init_ms, init_vs), 0)
@@ -210,39 +197,13 @@ def main():
     # these hyperparameters gamma and lambda are taken from PBP results
     # gam = 0.1 # gamma is the noise precision
     # lamb = 0.2 # lambda is the precision on weights
-    num_samps = 500
+    num_samps = ar.mc_samps
 
-    #Used on wine params.
-    if ar.data_name == 'wine':
-        a = 550.883042
-        b = 288.7679997
-    elif ar.data_name == 'naval':
-        a=4780.383185
-        b=144.3312336
-    elif ar.data_name =='robot':
-        a=3271.898334
-        b=331.122069
-    elif ar.data_name =='power':
-        a=4084.001869
-        b=236.8769553 
-    elif ar.data_name =='protein':
-        a=20080.58288
-        b=11029.92738
-    elif ar.data_name == 'year':
-        a=224608.67015
-        b=136304.09595
-    else:
-        a = 6.0
-        b = 6.0
-
-    gam = b/a # setting gamma to the posterior mean
-    lamb = 0.1 # this is questionable.
-
-
-    model = NN_Model(len_m, len_m_pri, len_v, num_samps, ms_vs, device, lamb, d)
+    model = NN_Model(len_m, len_m_pri, len_v, num_samps, ms_vs, device, ar.lamb, d)
     optimizer = optim.SGD(model.parameters(), lr=ar.lr)
     # optimizer = optim.Adam(model.parameters(), lr=0.00001)
-    v_noise = b / a * std_y_train ** 2
+    v_noise =  (1./ar.gam) * std_y_train ** 2 #the variance for the noise and std_y_train ** 2 is because it's reescaling it.
+    print("This is v_noise: ", v_noise)
 
     #Compute DP budget.
     delta=1e-5
@@ -262,13 +223,15 @@ def main():
 
             optimizer.zero_grad()
 
-            pred_samps, KL_term, m_pri, v_pri = model(torch.Tensor(inputs)) # some portion of X_train if mini-batch learning is happening
+            z_0_n, KL_term, m_pri, v_pri = model(torch.Tensor(inputs)) # some portion of X_train if mini-batch learning is happening
             
             if ar.is_private:
-                loss=loss_func_per_sample(pred_samps, KL_term, torch.Tensor(labels), torch.tensor(gam), d, m_pri, v_pri) #This loss has size minibatc_size
-                #print("Loss before backward: ", loss)
-                save_clipped_grad=torch.zeros(ar.clf_batch_size, ms_vs.shape[0]) #tensor that will contain the clipped gradients where size is batch_size per parameters size
-                #print('Thi is save_clipped_grad.shape: ', save_clipped_grad.shape)
+                #TO DO: compute loss per sample with a loop
+                for samp in range(labels.shape[0]):
+                    loss_per_sample=loss_func(z_0_n[samp, :, :], KL_term, torch.Tensor(labels[samp]), torch.tensor(ar.gam), m_pri, v_pri) #This loss has size minibatc_size
+                    #print("Loss before backward: ", loss)
+                    save_clipped_grad=torch.zeros(ar.clf_batch_size, ms_vs.shape[0]) #tensor that will contain the clipped gradients where size is batch_size per parameters size
+                    #print('Thi is save_clipped_grad.shape: ', save_clipped_grad.shape)
                 for i in range(loss.size()[0]):
                     loss[i].backward(retain_graph=True) #Compute per sample gradient.
                     """Check the gradient norm before clipping"""
@@ -312,24 +275,26 @@ def main():
 
                 
             else:
-                loss = loss_func(pred_samps, KL_term, torch.Tensor(labels), torch.tensor(gam), d, m_pri, v_pri)
+                loss = loss_func(z_0_n, KL_term, torch.Tensor(labels), torch.tensor(ar.gam), m_pri, v_pri)
                             # pred_samps, KL_term, y, gam, data_dim, m_pri, v_pri
             
-                print(loss.backward())
+                loss.backward()
                 optimizer.step()
 
-                print('Epoch {}: loss : {}'.format(epoch, loss))
+        print('Epoch {}: loss : {}'.format(epoch, loss))
 
 
         #### testing in every epoch ####
         pred_samps_y_tst, KL_term, m_pri, v_pri = model(torch.Tensor(X_test))
 
 
-        samps_from_standard_normal = torch.randn(d_h, num_samps)
+        samps_from_standard_normal = torch.randn(d_h + 1, num_samps)
         samps_std_adjusted = torch.einsum('i,ik ->ik', torch.sqrt(v_pri), samps_from_standard_normal)
         samples_w_1 = m_pri[:, None].repeat(1, samps_std_adjusted.shape[1]) + samps_std_adjusted
 
-        w_1_times_pred_samps_y_tst = torch.einsum('jk,  njk -> nk', samples_w_1, pred_samps_y_tst)
+        pred_sampls_y_tst_bias = F.pad(input=pred_samps_y_tst, pad=(0, 0, 0, 1), mode='constant', value=1) #add bias term
+
+        w_1_times_pred_samps_y_tst = torch.einsum('jk,  njk -> nk', samples_w_1, pred_sampls_y_tst_bias)
         m_prd = (torch.mean(w_1_times_pred_samps_y_tst, 1)).detach().numpy()
         v_prd = (torch.var(w_1_times_pred_samps_y_tst, 1)).detach().numpy()
         m_prd = m_prd * std_y_train + mean_y_train
