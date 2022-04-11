@@ -38,15 +38,19 @@ class NN_Model(nn.Module):
         # unpack ms_vs
         ms_vs = self.parameter
         m_w0 = ms_vs[0:self.len_m]
-        v_w0 = torch.abs(ms_vs[self.len_m: self.len_m + self.len_m])
-
-        m_pri=ms_vs[self.len_m + self.len_m:self.len_m + self.len_m + self.m_pri]
-        v_pri=torch.abs(ms_vs[self.len_m + self.len_m + self.m_pri:])
+        m_pri=ms_vs[self.len_m: self.len_m + self.m_pri]
 
 
-        #print("This is ms_vs: ", ms_vs)
-        #print("This is m_pri1: ", m_pri)
-        #print("This is v_pri1: ", v_pri)
+        #v_w0 = torch.abs(ms_vs[self.len_m + self.m_pri: self.len_m + self.m_pri + self.len_m])
+        v_w0=self.relu(ms_vs[self.len_m + self.m_pri: self.len_m + self.m_pri + self.len_m])
+        v_w0=v_w0 + 1e-6*torch.ones(v_w0.size())
+   
+
+        #v_pri=torch.abs(ms_vs[self.len_m + self.m_pri + self.len_m:])
+        v_pri=self.relu(ms_vs[self.len_m + self.m_pri + self.len_m:])
+        v_pri=v_pri + 1e-6*torch.ones(v_pri.size())
+
+
 
         # Generate MC samples to approx w0
         samps_w0 = torch.zeros((m_w0.shape[0], self.num_MC_samps_w0))
@@ -59,13 +63,17 @@ class NN_Model(nn.Module):
         data_dim = int(self.len_m / self.d_h - 1)
         W0=torch.reshape(samps_w0, (data_dim + 1, self.d_h, self.num_MC_samps_w0))
 
-        x_w0=torch.zeros((x.shape[0], self.d_h, self.num_MC_samps_w0))
+        #x_w0=torch.zeros((x.shape[0], self.d_h, self.num_MC_samps_w0))
 
 
-        for i in range(0, self.d_h):
-            #print("This is torch.matmul(x, W0[:, i, :] shape: ", torch.matmul(x, W0[:, i, :]).shape)
-            x_w0[:, i, :]=torch.matmul(x, W0[:, i, :]) 
-            
+        #for i in range(0, self.d_h):
+        #    for j in range(0, self.num_MC_samps_w0):
+                # x has shape N by d+1
+                # W0[:, i, j] has shape d+1 
+        #        x_w0[:, i, j]=torch.matmul(x, W0[:, i, j]) 
+
+        x_w0=torch.einsum('nd, dhm -> nhm', x, W0)
+           
         z=self.relu(x_w0)
         z=torch.cat((torch.ones(x.shape[0], 1, self.num_MC_samps_w0), z), 1)
 
@@ -73,15 +81,16 @@ class NN_Model(nn.Module):
         samps_w1 = torch.zeros((m_pri.shape[0], self.num_MC_samps_w1))
 
         for i in range(0, self.num_MC_samps_w1):
-            samps_w1[:, i]=   m_pri + torch.randn(m_pri.shape)*torch.sqrt(v_pri)
+            samps_w1[:, i]= m_pri + torch.randn(m_pri.shape)*torch.sqrt(v_pri)
             
-        pred_samps=torch.zeros((x.shape[0], self.num_MC_samps_w0, self.num_MC_samps_w1))
+        #pred_samps=torch.zeros((x.shape[0], self.num_MC_samps_w0, self.num_MC_samps_w1))
 
-        for i in range(0, self.num_MC_samps_w0):
-            #z[:,:, mc_w0] has shape n by d_h + 1
-            for j in range(0, self.num_MC_samps_w1):
-                pred_samps[:, i, j ]=torch.matmul(z[:,:, i], samps_w1[:, j])
+        #for i in range(0, self.num_MC_samps_w0):
+        #    pred_samps[:, i, :]=torch.matmul(z[:,:, i], samps_w1)
 
+        pred_samps=torch.einsum('ndm, dc -> nmc', z, samps_w1)
+
+        #print("Check if pred_samps and pred_samps_einsum are equal: ", torch.div( pred_samps, pred_samps_einsum) - 1)
 
         return pred_samps, m_w0,  v_w0, m_pri, v_pri
 
@@ -93,14 +102,17 @@ def loss_func(pred_samps, y, gam):
 
     out1=torch.zeros((n,  n_MC_samps_w0, n_MC_samps_w1))
 
-    for i in range(0, n):
-        for j in range(0, n_MC_samps_w0):
-            for k in range(0, n_MC_samps_w1):
 
-                out1[i,j,k]=0.5*gam*(y[i] - pred_samps[i,j,k])**2
+    for j in range(0, n_MC_samps_w0):
+        for k in range(0, n_MC_samps_w1):
+
+            out1[:,j,k]=0.5*gam*(y.squeeze() - pred_samps[:,j,k])**2
 
 
     out=torch.mean(out1) + 0.5*torch.log(2*torch.pi/gam)
+
+    
+        
     return out
 
 def main():
@@ -113,11 +125,12 @@ def main():
     """ basic quantities """
     d = 2
     n = 2000
+    n_test=200
     lamb = 1 # prior precision for weights
     gam = 100 # noise precision for y = w*x + noise, where noise \sim N(0, 1/gam)
     epochs = 2000
-    n_MC_samps_w0 = 10
-    n_MC_samps_w1 = 10
+    n_MC_samps_w0 = 20
+    n_MC_samps_w1 = 20
     d_h=2
 
     """ data generation """
@@ -130,11 +143,14 @@ def main():
     W0=torch.sqrt(1/torch.tensor(lamb))*torch.randn(d+1,d_h) # input dim plus a bias term to hidden units 
     #print("This is W0: ", W0)
 
-    print('ground truth W0 is', W0.shape)
-    print('ground truth W1 is', W1.shape)
+    #print('ground truth W0 is', W0.shape)
+    #print('ground truth W1 is', W1.shape)
 
     X = 1*torch.randn(n,d)
     X = torch.cat((torch.ones(n,1), X), 1) # n by (d+1)
+
+    X_test = 1*torch.randn(n_test,d)
+    X_test = torch.cat((torch.ones(n_test,1), X_test), 1) # n by (d+1)
 
     #print("This is X shape: ", X.shape)
 
@@ -142,16 +158,22 @@ def main():
     #x_w0_einsum=torch.einsum('nd, dh -> nh', X, W0)
     #print("Are x_w0 and x_w0_einsum equal: ", torch.div(x_w0, x_w0_einsum) - 1)
 
+    x_test_w0=torch.mm(X_test, W0)
+
     sigma=F.relu(x_w0)
+    sigma_test=F.relu(x_test_w0)
     #print("Negative elements after relu: ", sigma[sigma < 0])
 
     sigma_plus_bias=torch.cat((torch.ones(n,1), sigma), 1)
+    sigma_test_plus_bias=torch.cat((torch.ones(n_test,1), sigma_test), 1)
     #print("This is  sigma_plus_bias: ",  sigma_plus_bias.shape)
 
     sigma_w1=torch.mm(sigma_plus_bias, W1) 
+    sigma_test_w1=torch.mm(sigma_test_plus_bias, W1) 
     #print("This is sigma_w1: ", sigma_w1)
 
     y=torch.randn((n,1))*torch.sqrt(1/torch.tensor(gam)) + sigma_w1
+    y_test=torch.randn((n_test,1))*torch.sqrt(1/torch.tensor(gam)) + sigma_test_w1
     #print("This are the labels: ", y)
 
     """initialize model and it's parameters"""
@@ -160,10 +182,11 @@ def main():
     len_m_pri = d_h + 1 # length of mean parameters for w_1
     len_v_pri = d_h + 1 # length of variance parameters for w_1
     init_ms = 1*torch.randn(len_m + len_m_pri) # initial values for all means
-    init_vs = 1*torch.randn(len_v + len_v_pri) # initial values for all variances
+    init_vs = 1*torch.randn(len_v + len_v_pri)# initial values for all variances
+    #init_vs=1*torch.ones(len_m + len_m_pri)
     ms_vs = torch.cat((init_ms, init_vs), 0)
 
-    #print("This is ms_vs: ", ms_vs.shape)
+    print("This is ms_vs: ", ms_vs)
 
     model = NN_Model(len_m, len_v, n_MC_samps_w0, n_MC_samps_w1, ms_vs, device, lamb, d_h)
     optimizer = optim.SGD(model.parameters(), lr=1e-3)
@@ -189,35 +212,29 @@ def main():
 
         print('Epoch {}: loss : {}'.format(epoch, loss.sum()))
 
-        print('posterior mean of w1', m_w1)
-        print('ground truth W1 is', W1.squeeze())
-        print('posterior mean of w0', m_w0)
-        print('ground truth W0 is', torch.reshape(W0, (-1,)))
+        """Compute y_test predicted from model parameters to compare it with y_test"""
 
-        """Compute y predicted from model parameters to compare it with y"""
+        pred_samps_test, m_w0_test, v_w0_test, m_w1_test, v_w1_test = model(X_test)
 
-        W0_pred=torch.randn((d+1)*d_h)*torch.sqrt(v_w0) + m_w0
-        W0_pred=torch.reshape(W0_pred, (d + 1, d_h))
+        W0_test=torch.randn((d+1)*d_h)*torch.sqrt(v_w0_test) +  m_w0_test
+        W0_test=torch.reshape(W0_test, (d + 1, d_h))
 
-        x_w0_pred=torch.mm(X,  W0_pred)
+        x_w0_test=torch.mm(X_test,  W0_test)
 
-        z0_pred=F.relu(x_w0_pred)
-        z0_pred=torch.cat((torch.ones(n,1), z0_pred), 1)
+        z0_test=F.relu(x_w0_test)
+        z0_test=torch.cat((torch.ones(n_test,1), z0_test), 1)
 
-        w1_pred=torch.randn(d_h + 1)*torch.sqrt(v_w1) + m_w1
+        w1_test=torch.randn(d_h + 1)*torch.sqrt(v_w1_test) + m_w1_test
 
-        z1_pred=torch.matmul(z0_pred,  w1_pred) 
+        z1_test=torch.matmul(z0_test,  w1_test) 
 
-        y_pred=torch.randn((n,1))*torch.sqrt(1/torch.tensor(gam)) + z1_pred
-
-        mse=torch.mean((y - y_pred)**2)
-
-        print("This is MSE: ", mse)
-
-        print("This are the mean and std for y: ,", torch.mean(y), torch.std(y))
-        print("This are the mean and std for y_pred: ,", torch.mean(y_pred), torch.std(y_pred))
+        y_test_pred=torch.randn((n_test,1))*torch.sqrt(1/torch.tensor(gam)) + z1_test
 
 
+        mse_test=torch.mean((y_test - y_test_pred)**2)
+
+
+        print("This is test MSE: ", mse_test)
 
 
 if __name__ == '__main__':
