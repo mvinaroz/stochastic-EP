@@ -11,6 +11,13 @@ import torch.optim as optim
 # from sklearn.metrics import roc_auc_score
 import math
 
+import matplotlib
+from matplotlib import pyplot
+#matplotlib.pyplot.switch_backend('agg')
+
+import os
+os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
+
 
 class NN_Model(nn.Module):
 
@@ -41,13 +48,13 @@ class NN_Model(nn.Module):
         m_pri=ms_vs[self.len_m: self.len_m + self.m_pri]
 
 
-        #v_w0 = torch.abs(ms_vs[self.len_m + self.m_pri: self.len_m + self.m_pri + self.len_m])
-        v_w0=self.relu(ms_vs[self.len_m + self.m_pri: self.len_m + self.m_pri + self.len_m])
+        v_w0 = torch.abs(ms_vs[self.len_m + self.m_pri: self.len_m + self.m_pri + self.len_m])
+        #v_w0=self.relu(ms_vs[self.len_m + self.m_pri: self.len_m + self.m_pri + self.len_m])
         v_w0=v_w0 + 1e-6*torch.ones(v_w0.size())
    
 
-        #v_pri=torch.abs(ms_vs[self.len_m + self.m_pri + self.len_m:])
-        v_pri=self.relu(ms_vs[self.len_m + self.m_pri + self.len_m:])
+        v_pri=torch.abs(ms_vs[self.len_m + self.m_pri + self.len_m:])
+        #v_pri=self.relu(ms_vs[self.len_m + self.m_pri + self.len_m:])
         v_pri=v_pri + 1e-6*torch.ones(v_pri.size())
 
 
@@ -117,21 +124,21 @@ def loss_func(pred_samps, y, gam):
 
 def main():
 
-    np.random.seed(0)
-    torch.manual_seed(0)
+    np.random.seed(5)
+    torch.manual_seed(5)
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     print(device)
 
     """ basic quantities """
     d = 2
-    n = 2000
-    n_test=200
+    n = 10000
+    n_test=1000
     lamb = 1 # prior precision for weights
     gam = 100 # noise precision for y = w*x + noise, where noise \sim N(0, 1/gam)
-    epochs = 2000
+    epochs = 200
     n_MC_samps_w0 = 20
     n_MC_samps_w1 = 20
-    d_h=2
+    d_h=5
 
     """ data generation """
 
@@ -173,8 +180,8 @@ def main():
     #print("This is sigma_w1: ", sigma_w1)
 
     y=torch.randn((n,1))*torch.sqrt(1/torch.tensor(gam)) + sigma_w1
-    y_test=torch.randn((n_test,1))*torch.sqrt(1/torch.tensor(gam)) + sigma_test_w1
-    #print("This are the labels: ", y)
+    y_test=torch.randn((n_test, 1))*torch.sqrt(1/torch.tensor(gam)) + sigma_test_w1
+    print("This is sigma_test_w1: ", sigma_test_w1)
 
     """initialize model and it's parameters"""
     len_m = d_h * (d + 1)  # length of mean parameters for W_0, where the size of W_0 is d_h by (d+1)
@@ -191,7 +198,7 @@ def main():
     model = NN_Model(len_m, len_v, n_MC_samps_w0, n_MC_samps_w1, ms_vs, device, lamb, d_h)
     optimizer = optim.SGD(model.parameters(), lr=1e-3)
 
-    batch_size = 1000
+    batch_size = 200
     how_many_iter = np.int(n / batch_size)
 
     for epoch in range(1, epochs + 1):
@@ -228,13 +235,33 @@ def main():
 
         z1_test=torch.matmul(z0_test,  w1_test) 
 
-        y_test_pred=torch.randn((n_test,1))*torch.sqrt(1/torch.tensor(gam)) + z1_test
+
+        y_test_pred=torch.randn(n_test)*torch.sqrt(1/torch.tensor(gam)) + z1_test
 
 
         mse_test=torch.mean((y_test - y_test_pred)**2)
 
-
         print("This is test MSE: ", mse_test)
+        #print("This is y_test: ", y_test.squeeze().numpy())
+
+
+    matplotlib.pyplot.figure(figsize = [10, 5]) # larger figure size for subplots
+
+    # example of somewhat too-large bin size
+    matplotlib.pyplot.subplot(1, 2, 1) # 1 row, 2 cols, subplot 1
+
+    matplotlib.pyplot.hist(y_test.squeeze().detach().numpy(), bins=20)
+    matplotlib.pyplot.xlabel('y_test')
+
+    # example of somewhat too-small bin size
+    matplotlib.pyplot.subplot(1, 2, 2) # 1 row, 2 cols, subplot 2
+
+
+    matplotlib.pyplot.hist(y_test_pred.squeeze().detach().numpy(),  bins=20)
+    matplotlib.pyplot.xlabel('y_test_pred')
+    matplotlib.pyplot.show()
+
+
 
 
 if __name__ == '__main__':
