@@ -42,7 +42,6 @@ class NN_Model(nn.Module):
     def forward(self, x):  # x is mini_batch_size by input_dim
 
 
-        # unpack ms_vs
         ms_vs = self.parameter
         m_w0 = ms_vs[0:self.len_m]
         m_pri=ms_vs[self.len_m: self.len_m + self.m_pri]
@@ -56,7 +55,6 @@ class NN_Model(nn.Module):
         v_pri=torch.abs(ms_vs[self.len_m + self.m_pri + self.len_m:])
         #v_pri=self.relu(ms_vs[self.len_m + self.m_pri + self.len_m:])
         v_pri=v_pri + 1e-6*torch.ones(v_pri.size())
-
 
 
         # Generate MC samples to approx w0
@@ -102,8 +100,38 @@ class NN_Model(nn.Module):
         return pred_samps, m_w0,  v_w0, m_pri, v_pri
 
 
+def kl_div_term(m0, v0, lamb):
+
+    # KL(N0, N1) = 0.5*(TR(\precision1 \cov0) + (\mu1 - \mu0).T \precision1 (\mu1 - \mu0) -d + ln( det(\cov1) / det(\cov0) ) )
+    #print("This is v0: ", v0)
+    cov0=torch.diag(v0)
+    #print("This is cov0: ", cov0)
+    cov1=torch.eye(v0.shape[0])*(1/torch.tensor(lamb))
+    #print("This is cov1: ", cov1)
+    precision1=torch.linalg.inv(cov1)
+
+    m1=torch.zeros(m0.shape)
+
+    trace_trm=torch.trace(torch.matmul(precision1, cov0))
+    mu_diff=m1 - m0
+    #print("This is m1 - m0: ", mu_diff)
+    squared_term=torch.matmul(torch.matmul(mu_diff.T, precision1), mu_diff)
+    #print("This is squared_term: ", squared_term)
+
+    d=m0.shape[0]
+    #print("This is dim in kl:", d)
+
+    log_term=torch.log( torch.det(cov1) / torch.det(cov0))
+    #print("This is torch.det(cov1): ", torch.det(cov1))
+    #print("This is log_term: ", log_term)
+
+    kl_div=0.5*(trace_trm + squared_term - d + log_term )
+
+    return kl_div
+
+
         
-def loss_func(pred_samps, y, gam):
+def loss_func(pred_samps, y, gam, kl_div):
 
     n, n_MC_samps_w0, n_MC_samps_w1 = pred_samps.shape  
 
@@ -113,20 +141,12 @@ def loss_func(pred_samps, y, gam):
     for j in range(0, n_MC_samps_w0):
         for k in range(0, n_MC_samps_w1):
 
-            out1[:,j,k]=0.5*gam*(y.squeeze() - pred_samps[:,j,k])**2
-            print((y.squeeze() - pred_samps[:,j,k])**2)
-
-    out2=torch.mean(out1, (1, 2))
+            out1[:,j,k]=0.5*gam*(y.squeeze()- pred_samps[:,j,k])**2
 
 
-    #print("These is out2; ", out2.shape)
+    out=torch.mean(out1) + 0.5*torch.log(2*torch.pi/gam)
 
-
-    out=torch.sum(out2) + 0.5*n*torch.log(2*torch.pi/gam)
-
-    
-        
-    return out
+    return out + kl_div
 
 def main():
 
@@ -138,7 +158,7 @@ def main():
     """ basic quantities """
     d = 2
     n = 2000
-    n_test=200
+    n_test=500
     lamb = 1 # prior precision for weights
     gam = 100 # noise precision for y = w*x + noise, where noise \sim N(0, 1/gam)
     epochs = 200
@@ -186,20 +206,20 @@ def main():
     #print("This is sigma_w1: ", sigma_w1)
 
     y=torch.randn((n,1))*torch.sqrt(1/torch.tensor(gam)) + sigma_w1
-    y_test=torch.randn((n_test, 1))*torch.sqrt(1/torch.tensor(gam)) + sigma_test_w1
-    #print("This is sigma_test_w1: ", sigma_test_w1)
+    y_test=torch.randn((n_test,1))*torch.sqrt(1/torch.tensor(gam)) + sigma_test_w1
+    #print("This are the labels: ", y)
 
     """initialize model and it's parameters"""
     len_m = d_h * (d + 1)  # length of mean parameters for W_0, where the size of W_0 is d_h by (d+1)
     len_v = d_h * (d + 1)  # length of variance parameters for W_0
     len_m_pri = d_h + 1 # length of mean parameters for w_1
     len_v_pri = d_h + 1 # length of variance parameters for w_1
-    init_ms = 1*torch.randn(len_m + len_m_pri) # initial values for all means
-    init_vs = 1*torch.randn(len_v + len_v_pri)# initial values for all variances
-    #init_vs=1*torch.ones(len_m + len_m_pri)
+    init_ms = 0.1*torch.randn(len_m + len_m_pri) # initial values for all means
+    init_vs = 0.1*torch.randn(len_v + len_v_pri) # initial values for all variances
+    #init_vs = 1*torch.ones(len_v + len_v_pri)
     ms_vs = torch.cat((init_ms, init_vs), 0)
 
-    #print("This is ms_vs: ", ms_vs)
+    #print("This is ms_vs: ", ms_vs.shape)
 
     model = NN_Model(len_m, len_v, n_MC_samps_w0, n_MC_samps_w1, ms_vs, device, lamb, d_h)
     optimizer = optim.SGD(model.parameters(), lr=1e-3)
@@ -218,14 +238,35 @@ def main():
             optimizer.zero_grad()
 
             pred_samps, m_w0, v_w0, m_w1, v_w1= model(inputs)
-            loss = loss_func(pred_samps, labels, torch.tensor(gam))
+            #kl_w1=kl_div_term(m_w1, v_w1, lamb)
+            kl_w1=0
+
+            mean_w0=torch.reshape(m_w0, (d + 1, d_h))
+            var_w0=torch.reshape(v_w0, (d + 1, d_h))
+
+            kl_w0_dh=torch.zeros(d_h)
+
+            for dim in range(0, d_h):
+                kl_w0_dh[dim]=kl_div_term(mean_w0[:, dim], var_w0[:, dim], lamb)
+
+            kl_w0=torch.sum(kl_w0_dh)
+            #kl_w0=0
+            #print("This is kl_w0: ", kl_w0)
+            kl_term=(1./n)*(kl_w0 + kl_w1)
+            #kl_term=0
+
+
+            loss = loss_func(pred_samps, labels, torch.tensor(gam), kl_term)
 
             loss.backward()
             optimizer.step()
 
         print('Epoch {}: loss : {}'.format(epoch, loss.sum()))
 
-        """Compute y_test predicted from model parameters to compare it with y_test"""
+        """Compute y predicted from model parameters to compare it with y_test"""
+
+        #print("This are the mean and std for y: ,", torch.mean(y), torch.std(y))
+        #print("This are the mean and std for y_pred: ,", torch.mean(y_pred), torch.std(y_pred))
 
         pred_samps_test, m_w0_test, v_w0_test, m_w1_test, v_w1_test = model(X_test)
 
@@ -241,16 +282,14 @@ def main():
 
         z1_test=torch.matmul(z0_test,  w1_test) 
 
-
         y_test_pred=torch.randn(n_test)*torch.sqrt(1/torch.tensor(gam)) + z1_test
-
 
         mse_test=torch.mean((y_test - y_test_pred)**2)
 
+
         print("This is test MSE: ", mse_test)
-        #print("This is y_test: ", y_test.squeeze().numpy())
 
-
+        
     matplotlib.pyplot.figure(figsize = [10, 5]) # larger figure size for subplots
 
     # example of somewhat too-large bin size
@@ -266,6 +305,7 @@ def main():
     matplotlib.pyplot.hist(y_test_pred.squeeze().detach().numpy(),  bins=20)
     matplotlib.pyplot.xlabel('y_test_pred')
     matplotlib.pyplot.show()
+
 
 
 
