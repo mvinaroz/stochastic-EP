@@ -21,7 +21,7 @@ os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
 
 class NN_Model(nn.Module):
 
-    def __init__(self,  len_m, len_v, num_samps_w0, num_samps_w1, init_var_params, device, lamb, d_h):
+    def __init__(self,  len_m, len_v, num_samps_w0, num_samps_w1, init_var_params, device, d_h):
         # len_m, len_m_pri, len_v, num_samps, ms_vs, device, gam, lamb, d
         super(NN_Model, self).__init__()
         self.parameter = Parameter(torch.Tensor(init_var_params), requires_grad=True)
@@ -32,7 +32,7 @@ class NN_Model(nn.Module):
         self.len_v = len_v
         self.m_pri= d_h + 1
         self.v_pri= d_h + 1
-        self.lamb = lamb
+        #self.lamb = lamb
         self.relu = F.relu
         self.d_h = d_h
 
@@ -153,19 +153,20 @@ def get_args():
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--seed', type=int, default=1, help='sets random seed')
-    parser.add_argument('--data-name', type=str, default='naval', \
+    parser.add_argument('--data-name', type=str, default='wine', \
                         help='choose the data name among naval, robot, power, wine, protein')
 
     # OPTIMIZATION
     parser.add_argument('--n-hidden', type=int, default=50, help='number of hidden units in the layer')
-    parser.add_argument('--batch-size', '-bs', type=int, default=10740, help='batch size during training')
+    parser.add_argument('--batch-size', '-bs', type=int, default=200, help='batch size during training')
     parser.add_argument('--epochs', type=int, default=200)
     parser.add_argument("--normalize-data", action='store_true', default=True)
     parser.add_argument('--lr', type=float, default=1e-3,  help='learning rate' )
     parser.add_argument('--lamb', type=float, default=1,  help='precision on weights' )
-    parser.add_argument('--gam', type=float, default=1000,  help='precision on noise' )
-    parser.add_argument('--mc-samps-w0', type=int, default=20,  help='number of mc samples to generate for w0' )
-    parser.add_argument('--mc-samps-w1', type=int, default=20,  help='number of mc samples to generate for w1' )
+    parser.add_argument('--gam', type=float, default=2,  help='precision on noise' )
+    parser.add_argument('--mc-samps-w0', type=int, default=50,  help='number of mc samples to generate for w0' )
+    parser.add_argument('--mc-samps-w1', type=int, default=50,  help='number of mc samples to generate for w1' )
+    parser.add_argument('--beta', type=float, default=2,  help='kl divergence regularizer' )
 
     ar = parser.parse_args()
 
@@ -188,6 +189,7 @@ def main():
     gam=ar.gam
     epochs=ar.epochs
     batch_size=ar.batch_size
+    beta=ar.beta
 
 
     """Load data"""
@@ -213,12 +215,15 @@ def main():
 
         y_train = (y_train - mean_y_train) / std_y_train
 
+        v_noise =  (1./ar.gam) * std_y_train ** 2 #the variance for the noise and std_y_train ** 2 is because it's reescaling it.
+
 
     else:
         print('testing non-standardized data')
 
-    v_noise =  (1./ar.gam) * std_y_train ** 2 #the variance for the noise and std_y_train ** 2 is because it's reescaling it.
+        v_noise=(1./ar.gam)
 
+    
     print("This is v_noise: ", v_noise)
 
     n, d = X_train.shape
@@ -249,11 +254,11 @@ def main():
 
     #print("This is ms_vs: ", ms_vs.shape)
 
-    model = NN_Model(len_m, len_v, n_MC_samps_w0, n_MC_samps_w1, ms_vs, device, lamb, d_h)
+    model = NN_Model(len_m, len_v, n_MC_samps_w0, n_MC_samps_w1, ms_vs, device, d_h)
     optimizer = optim.SGD(model.parameters(), lr=ar.lr)
 
 
-    how_many_iter = np.int(n / batch_size)
+    how_many_iter = int(n / batch_size)
 
     for epoch in range(1, epochs + 1):
         model.train()
@@ -280,7 +285,7 @@ def main():
             kl_w0=torch.sum(kl_w0_dh)
             #kl_w0=0
             #print("This is kl_w0: ", kl_w0)
-            kl_term=(1./n)*(kl_w0 + kl_w1)
+            kl_term=(beta/batch_size)*(kl_w0 + kl_w1)
             #kl_term=0
 
 
@@ -312,7 +317,7 @@ def main():
 
         #print("This is pred_samps_test: ", pred_samps_test.shape)
 
-        m_prd = (torch.mean(pred_samps_test, (1, 2))).detach().numpy()
+        m_prd = (torch.mean(pred_samps_test, (1, 2))).detach().numpy() 
         v_prd = (torch.var(pred_samps_test, (1, 2))).detach().numpy()
 
         if ar.normalize_data:
