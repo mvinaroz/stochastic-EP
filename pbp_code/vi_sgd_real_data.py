@@ -21,7 +21,7 @@ os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
 
 class NN_Model(nn.Module):
 
-    def __init__(self,  len_m, len_v, num_samps_w0, num_samps_w1, init_var_params, device, d_h):
+    def __init__(self,  len_m, len_v, num_samps_w0, num_samps_w1, init_var_params, device, lamb, d_h):
         # len_m, len_m_pri, len_v, num_samps, ms_vs, device, gam, lamb, d
         super(NN_Model, self).__init__()
         self.parameter = Parameter(torch.Tensor(init_var_params), requires_grad=True)
@@ -32,7 +32,7 @@ class NN_Model(nn.Module):
         self.len_v = len_v
         self.m_pri= d_h + 1
         self.v_pri= d_h + 1
-        #self.lamb = lamb
+        self.lamb = lamb
         self.relu = F.relu
         self.d_h = d_h
 
@@ -107,12 +107,14 @@ def kl_div_term(m0, v0, lamb):
     cov0=torch.diag(v0)
     #print("This is cov0: ", cov0)
     cov1=torch.eye(v0.shape[0])*(1/torch.tensor(lamb))
-    #print("This is cov1: ", cov1)
+    
     precision1=torch.linalg.inv(cov1)
 
     m1=torch.zeros(m0.shape)
 
     trace_trm=torch.trace(torch.matmul(precision1, cov0))
+    #print("This is trace_term: ", trace_trm)
+
     mu_diff=m1 - m0
     #print("This is m1 - m0: ", mu_diff)
     squared_term=torch.matmul(torch.matmul(mu_diff.T, precision1), mu_diff)
@@ -121,13 +123,36 @@ def kl_div_term(m0, v0, lamb):
     d=m0.shape[0]
     #print("This is dim in kl:", d)
 
-    log_term=torch.log( torch.det(cov1) / torch.det(cov0))
+    
+    log_term=torch.log(torch.det(cov1))  - torch.log(torch.det(cov0))
     #print("This is torch.det(cov1): ", torch.det(cov1))
+    #print("This is torch.log(torch.det(cov1)): ", torch.log(torch.det(cov1)))
+    #print("This is torch.log(torch.det(cov0)): ", torch.log(torch.det(cov0)))
+    #print("This is torch.det(cov1) / torch.det(cov0): ", torch.det(cov1) / torch.det(cov0))
     #print("This is log_term: ", log_term)
 
     kl_div=0.5*(trace_trm + squared_term - d + log_term )
 
     return kl_div
+
+
+def kl_div_univariate(m_0, v_0, lamb):
+    # KL(N0, N1) =0.5*((std0/std1)**2 + (mu1-mu0)**2/std1**2 - 1 + log(std1/std0))
+
+    std0=torch.sqrt(v_0)
+    std1=torch.sqrt(1/torch.tensor(lamb))
+
+    mu1=torch.zeros(v_0.shape)
+
+    term1=(std0/std1)**2
+    mu_diff=(mu1 - m_0)**2
+
+    term2=mu_diff/(std1**2)
+    
+    log_term=torch.log(std1) - torch.log(std0)
+    kl_term= 0.5*(term1 + term2 - 1 + log_term)
+
+    return  kl_term
 
 
         
@@ -153,20 +178,20 @@ def get_args():
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--seed', type=int, default=1, help='sets random seed')
-    parser.add_argument('--data-name', type=str, default='wine', \
+    parser.add_argument('--data-name', type=str, default='naval', \
                         help='choose the data name among naval, robot, power, wine, protein')
 
     # OPTIMIZATION
     parser.add_argument('--n-hidden', type=int, default=50, help='number of hidden units in the layer')
-    parser.add_argument('--batch-size', '-bs', type=int, default=200, help='batch size during training')
-    parser.add_argument('--epochs', type=int, default=200)
+    parser.add_argument('--batch-size', '-bs', type=int, default=100, help='batch size during training')
+    parser.add_argument('--epochs', type=int, default=40)
     parser.add_argument("--normalize-data", action='store_true', default=True)
-    parser.add_argument('--lr', type=float, default=1e-3,  help='learning rate' )
-    parser.add_argument('--lamb', type=float, default=1,  help='precision on weights' )
-    parser.add_argument('--gam', type=float, default=2,  help='precision on noise' )
-    parser.add_argument('--mc-samps-w0', type=int, default=50,  help='number of mc samples to generate for w0' )
-    parser.add_argument('--mc-samps-w1', type=int, default=50,  help='number of mc samples to generate for w1' )
-    parser.add_argument('--beta', type=float, default=2,  help='kl divergence regularizer' )
+    parser.add_argument('--lr', type=float, default=1e-4,  help='learning rate' )
+    parser.add_argument('--lamb', type=float, default=10,  help='precision on weights' )
+    parser.add_argument('--gam', type=float, default=20,  help='precision on noise' )
+    parser.add_argument('--mc-samps-w0', type=int, default=10,  help='number of mc samples to generate for w0' )
+    parser.add_argument('--mc-samps-w1', type=int, default=10,  help='number of mc samples to generate for w1' )
+    parser.add_argument('--beta', type=float, default=1.0,  help='' )
 
     ar = parser.parse_args()
 
@@ -189,7 +214,6 @@ def main():
     gam=ar.gam
     epochs=ar.epochs
     batch_size=ar.batch_size
-    beta=ar.beta
 
 
     """Load data"""
@@ -215,15 +239,12 @@ def main():
 
         y_train = (y_train - mean_y_train) / std_y_train
 
-        v_noise =  (1./ar.gam) * std_y_train ** 2 #the variance for the noise and std_y_train ** 2 is because it's reescaling it.
-
 
     else:
         print('testing non-standardized data')
 
-        v_noise=(1./ar.gam)
+    v_noise =  (1./ar.gam) * std_y_train ** 2 #the variance for the noise and std_y_train ** 2 is because it's reescaling it.
 
-    
     print("This is v_noise: ", v_noise)
 
     n, d = X_train.shape
@@ -254,11 +275,11 @@ def main():
 
     #print("This is ms_vs: ", ms_vs.shape)
 
-    model = NN_Model(len_m, len_v, n_MC_samps_w0, n_MC_samps_w1, ms_vs, device, d_h)
-    optimizer = optim.SGD(model.parameters(), lr=ar.lr)
+    model = NN_Model(len_m, len_v, n_MC_samps_w0, n_MC_samps_w1, ms_vs, device, lamb, d_h)
+    optimizer = optim.SGD(model.parameters(), lr=ar.lr, momentum=0.2)
 
 
-    how_many_iter = int(n / batch_size)
+    how_many_iter = np.int(n / batch_size)
 
     for epoch in range(1, epochs + 1):
         model.train()
@@ -271,21 +292,33 @@ def main():
             optimizer.zero_grad()
 
             pred_samps, m_w0, v_w0, m_w1, v_w1= model(inputs)
-            #kl_w1=kl_div_term(m_w1, v_w1, lamb)
-            kl_w1=0
 
-            mean_w0=torch.reshape(m_w0, (d + 1, d_h))
-            var_w0=torch.reshape(v_w0, (d + 1, d_h))
+            kl_w1_dh=torch.zeros(d_h + 1)
+            for a in range(0, d_h + 1):
+                kl_w1_dh[a]=kl_div_univariate(m_w1[a], v_w1[a], lamb)
+            
+            kl_w1=torch.sum(kl_w1_dh)
+            #print("This is kl_w1: ", kl_w1)
+            #kl_w1=0
 
-            kl_w0_dh=torch.zeros(d_h)
+            #mean_w0=torch.reshape(m_w0, (d + 1, d_h))
+            #var_w0=torch.reshape(v_w0, (d + 1, d_h))
 
-            for dim in range(0, d_h):
-                kl_w0_dh[dim]=kl_div_term(mean_w0[:, dim], var_w0[:, dim], lamb)
+            kl_w0_dh=torch.zeros(m_w0.shape[0])
+
+            for dim in range(0, m_w0.shape[0]):
+                kl_w0_dh[dim]=kl_div_univariate(m_w0[dim], v_w0[dim], lamb)
+
+
+            #kl_w0_dh=torch.zeros(d_h)
+
+            #for dim in range(0, d_h):
+            #    kl_w0_dh[dim]=kl_div_term(mean_w0[:, dim], var_w0[:, dim], lamb)
 
             kl_w0=torch.sum(kl_w0_dh)
             #kl_w0=0
             #print("This is kl_w0: ", kl_w0)
-            kl_term=(beta/batch_size)*(kl_w0 + kl_w1)
+            kl_term=(ar.beta/batch_size)*(kl_w0 + kl_w1)
             #kl_term=0
 
 
@@ -317,7 +350,7 @@ def main():
 
         #print("This is pred_samps_test: ", pred_samps_test.shape)
 
-        m_prd = (torch.mean(pred_samps_test, (1, 2))).detach().numpy() 
+        m_prd = (torch.mean(pred_samps_test, (1, 2))).detach().numpy()
         v_prd = (torch.var(pred_samps_test, (1, 2))).detach().numpy()
 
         if ar.normalize_data:
@@ -339,21 +372,21 @@ def main():
  
 
         
-    matplotlib.pyplot.figure(figsize = [10, 5]) # larger figure size for subplots
+    #matplotlib.pyplot.figure(figsize = [10, 5]) # larger figure size for subplots
 
     # example of somewhat too-large bin size
-    matplotlib.pyplot.subplot(1, 2, 1) # 1 row, 2 cols, subplot 1
+    #matplotlib.pyplot.subplot(1, 2, 1) # 1 row, 2 cols, subplot 1
 
-    matplotlib.pyplot.hist(y_test.squeeze().detach().numpy(), bins=20)
-    matplotlib.pyplot.xlabel('y_test')
+    #matplotlib.pyplot.hist(y_test.squeeze().detach().numpy(), bins=20)
+    #matplotlib.pyplot.xlabel('y_test')
 
     # example of somewhat too-small bin size
-    matplotlib.pyplot.subplot(1, 2, 2) # 1 row, 2 cols, subplot 2
+    #matplotlib.pyplot.subplot(1, 2, 2) # 1 row, 2 cols, subplot 2
 
 
-    matplotlib.pyplot.hist(y_test_pred.squeeze().detach().numpy(),  bins=20)
-    matplotlib.pyplot.xlabel('y_test_pred')
-    matplotlib.pyplot.show()
+    #matplotlib.pyplot.hist(y_test_pred.squeeze().detach().numpy(),  bins=20)
+    #matplotlib.pyplot.xlabel('y_test_pred')
+    #matplotlib.pyplot.show()
 
 
 

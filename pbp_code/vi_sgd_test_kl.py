@@ -165,7 +165,6 @@ def main():
     n_MC_samps_w0 = 20
     n_MC_samps_w1 = 20
     d_h=5
-    beta=0.2
 
     """ data generation """
 
@@ -253,7 +252,7 @@ def main():
             kl_w0=torch.sum(kl_w0_dh)
             #kl_w0=0
             #print("This is kl_w0: ", kl_w0)
-            kl_term=(beta/batch_size)*(kl_w0 + kl_w1)
+            kl_term=(1./n)*(kl_w0 + kl_w1)
             #kl_term=0
 
 
