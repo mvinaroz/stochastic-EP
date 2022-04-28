@@ -121,7 +121,12 @@ def kl_div_term(m0, v0, lamb):
     d=m0.shape[0]
     #print("This is dim in kl:", d)
 
-    log_term=torch.log( torch.det(cov1) / torch.det(cov0))
+    if torch.det(cov1) == 0:
+        det_cov1=1e-17
+    else:
+        det_cov1=torch.det(cov1)
+
+    log_term=torch.log(det_cov1)  -torch.log(torch.det(cov0))
     #print("This is torch.det(cov1): ", torch.det(cov1))
     #print("This is log_term: ", log_term)
 
@@ -165,6 +170,7 @@ def main():
     n_MC_samps_w0 = 20
     n_MC_samps_w1 = 20
     d_h=5
+    beta=0.1
 
     """ data generation """
 
@@ -238,8 +244,8 @@ def main():
             optimizer.zero_grad()
 
             pred_samps, m_w0, v_w0, m_w1, v_w1= model(inputs)
-            #kl_w1=kl_div_term(m_w1, v_w1, lamb)
-            kl_w1=0
+            kl_w1=kl_div_term(m_w1, v_w1, lamb)
+            #kl_w1=0
 
             mean_w0=torch.reshape(m_w0, (d + 1, d_h))
             var_w0=torch.reshape(v_w0, (d + 1, d_h))
@@ -252,7 +258,7 @@ def main():
             kl_w0=torch.sum(kl_w0_dh)
             #kl_w0=0
             #print("This is kl_w0: ", kl_w0)
-            kl_term=(1./n)*(kl_w0 + kl_w1)
+            kl_term=(beta/batch_size)*(kl_w0 + kl_w1)
             #kl_term=0
 
 
