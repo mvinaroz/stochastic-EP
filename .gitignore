@@ -33,4 +33,4 @@ SEP Cam Tue talk/
 
 **/__pycache__
 
-*.pyc
+**/*.pyc
