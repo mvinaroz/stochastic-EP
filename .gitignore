@@ -31,6 +31,6 @@ MoG_code/results
 
 SEP Cam Tue talk/
 
-__pycache__/
+**/__pycache__
 
 *.pyc
