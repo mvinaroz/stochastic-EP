@@ -39,6 +39,6 @@ Contains pbp experiments for regression datasets using EP, SEP, clipped SEP and 
     - SEP: `python pbp_regression_sep.py --seed 1 --data-name wine --n-hidden 50 --epochs 40`
     - clipping SEP: `python pbp_regression_dpsep.py --seed 1 --data-name wine --n-hidden 50 --epochs 40 --clip --c 1`
     - DP-SEP: `python pbp_regression_dpsep.py --seed 1 --data-name wine --n-hidden 50 --epochs 40 --clip --c 1 --is-private --epsilon 1 --delta 1e-5`
-    -VI:  `python vi_sgd_real_data.py --seed 1 --data-name wine  --n-hidden 50 --epochs 40 --lamb 200 --gam 2 --mc-samps 20 --beta 0.01`
+    - VI:  `python vi_sgd_real_data.py --seed 1 --data-name wine  --n-hidden 50 --epochs 40 --lamb 200 --gam 2 --mc-samps 20 --beta 0.01`
     - DP-VI:  `python vi_sgd_real_data.py --seed 1 --data-name wine  --n-hidden 50 --epochs 40 --lamb 200 --gam 2 --mc-samps 20 --beta 0.01 --clip 5 --delta 1e-5 --sigma 30`
 
